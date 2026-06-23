@@ -10,7 +10,7 @@ import './App.css';
 function App() {
   // Configuración de conexiones (definida en código y sobreescribible vía variables de entorno .env / Netlify)
   const [config] = useState(() => {
-    const defaultSheetUrl = import.meta.env.VITE_SHEET_URL || 'https://script.google.com/macros/s/AKfycbzh8dvSWSPw7UqhJCU0-xsUs_aFZwAN2ytzVUW_19wwHKLUdc6BEFefnRckVmfoDI-aOA/exec';
+    const defaultSheetUrl = import.meta.env.VITE_SHEET_URL || 'https://script.google.com/macros/s/AKfycbxuGLNmI1O2XiBQM43AbaKTPGunLKnV92erRWk8slAp-kYfuDY0r2ikDd8ipny1D7DZRQ/exec';
     return {
       sheetUrl: defaultSheetUrl,
       sheetUrlVoters: import.meta.env.VITE_SHEET_URL_VOTERS || defaultSheetUrl,

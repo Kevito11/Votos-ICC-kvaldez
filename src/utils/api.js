@@ -205,32 +205,57 @@ export async function uploadPhotoToSupabase(file, supabaseUrl, supabaseKey, buck
 
 /**
  * Limpia y normaliza la URL de una foto (especialmente de Google Drive) para que se renderice correctamente en <img>
+ * Devuelve la URL más compatible con renderizado directo en navegadores.
  */
 export function getCleanPhotoUrl(photoUrl) {
   if (!photoUrl) return "";
   if (photoUrl.startsWith("data:")) return photoUrl;
+  // URLs de Supabase u otros proveedores externos: devolverlas tal cual
+  if (!photoUrl.includes("google") && !photoUrl.includes("drive") && !photoUrl.includes("googleusercontent")) {
+    return photoUrl;
+  }
   
   try {
     let fileId = "";
     if (photoUrl.includes("id=")) {
-      // Formato: https://docs.google.com/uc?export=view&id=FILE_ID
       fileId = photoUrl.split("id=")[1].split("&")[0];
     } else if (photoUrl.includes("/d/")) {
-      // Formato: https://drive.google.com/file/d/FILE_ID/view
       fileId = photoUrl.split("/d/")[1].split("/")[0];
     } else if (photoUrl.includes("googleusercontent.com/d/")) {
-      // Formato: https://lh3.googleusercontent.com/d/FILE_ID
-      fileId = photoUrl.split("googleusercontent.com/d/")[1];
+      fileId = photoUrl.split("googleusercontent.com/d/")[1].split("?")[0];
     }
     
     if (fileId) {
-      return `https://lh3.googleusercontent.com/d/${fileId}`;
+      // Usar el endpoint más confiable para renderizar imágenes de Drive en <img>
+      return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
     }
   } catch (e) {
     console.error("Error al limpiar URL de foto:", e);
   }
   
   return photoUrl;
+}
+
+/**
+ * Devuelve URLs alternativas de Google Drive para reintentar si la principal falla.
+ * Útil para el atributo onError de las etiquetas <img>.
+ */
+export function getDriveFallbackUrls(photoUrl) {
+  if (!photoUrl) return [];
+  let fileId = "";
+  if (photoUrl.includes("id=")) {
+    fileId = photoUrl.split("id=")[1].split("&")[0];
+  } else if (photoUrl.includes("/d/")) {
+    fileId = photoUrl.split("/d/")[1].split("/")[0];
+  } else if (photoUrl.includes("googleusercontent.com/d/")) {
+    fileId = photoUrl.split("googleusercontent.com/d/")[1].split("?")[0];
+  }
+  if (!fileId) return [photoUrl];
+  return [
+    `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`,
+    `https://lh3.googleusercontent.com/d/${fileId}`,
+    `https://drive.google.com/uc?export=view&id=${fileId}`,
+  ];
 }
 
 /**

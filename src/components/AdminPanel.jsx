@@ -6,13 +6,13 @@ import {
   updateCandidateInSheets,
   updateVotersInSheets, 
   addVoteToSheets,
-  getCleanPhotoUrl,
   resetVoterVotesInSheets,
   clearVotesInSheets,
   resetMultipleVotersVotesInSheets
 } from '../utils/api';
 import { MOCK_CANDIDATES, MOCK_VOTERS, MOCK_VOTES } from '../utils/mockData';
 import ImageCropper from './ImageCropper';
+import CandidatePhoto from './CandidatePhoto';
 import Tooltip from './Tooltip';
 
 
@@ -1456,27 +1456,13 @@ function getSheetData(sheet) {
                 return (
                   <div key={cand.id} className={`card result-card ${stats.approvalRate >= 75 ? 'high-approval' : ''}`}>
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '12px' }}>
-                      {cand.photo ? (
-                        <img src={getCleanPhotoUrl(cand.photo)} className="candidate-avatar" alt={fullName} style={{ width: '60px', height: '60px' }} />
-                      ) : (
-                        <div 
-                          className="candidate-avatar placeholder-avatar" 
-                          style={{ 
-                            width: '60px', 
-                            height: '60px', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            backgroundColor: 'var(--primary-light)', 
-                            color: 'var(--primary)', 
-                            fontWeight: 'bold', 
-                            fontSize: '18px',
-                            borderRadius: '50%'
-                          }}
-                        >
-                          {cand.firstName?.charAt(0)}{cand.lastName?.charAt(0)}
-                        </div>
-                      )}
+                      <CandidatePhoto
+                        photo={cand.photo}
+                        firstName={cand.firstName}
+                        lastName={cand.lastName}
+                        className="candidate-avatar"
+                        style={{ width: '60px', height: '60px' }}
+                      />
                       <div>
                         <h4 className="candidate-name" style={{ margin: 0 }}>{fullName}</h4>
                         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -1656,11 +1642,21 @@ function getSheetData(sheet) {
                 {/* Previsualización de la foto */}
                 {(candPhotoFile || (editingCandidateId && candidates.find(c => c.id === editingCandidateId)?.photo)) && (
                   <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'var(--bg-input)', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                    <img 
-                      src={candPhotoFile ? URL.createObjectURL(candPhotoFile) : getCleanPhotoUrl(candidates.find(c => c.id === editingCandidateId)?.photo)} 
-                      alt="Vista previa" 
-                      style={{ width: '60px', height: '60px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--primary-light)' }} 
-                    />
+                    {candPhotoFile ? (
+                      <img 
+                        src={URL.createObjectURL(candPhotoFile)} 
+                        alt="Vista previa" 
+                        style={{ width: '60px', height: '60px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--primary-light)' }} 
+                      />
+                    ) : (
+                      <CandidatePhoto
+                        photo={candidates.find(c => c.id === editingCandidateId)?.photo}
+                        firstName={candFirstName}
+                        lastName={candLastName}
+                        className="candidate-avatar"
+                        style={{ width: '60px', height: '60px', border: '2px solid var(--primary-light)' }}
+                      />
+                    )}
                     <div>
                       <span style={{ fontSize: '13px', fontWeight: '600', display: 'block', color: 'var(--text-primary)' }}>
                         {candPhotoFile ? "Nueva foto seleccionada" : "Foto actual del candidato"}
@@ -1742,25 +1738,12 @@ function getSheetData(sheet) {
                 return (
                   <div key={cand.id} className="candidate-row-card">
                     <div className="candidate-info">
-                      {cand.photo ? (
-                        <img src={getCleanPhotoUrl(cand.photo)} className="candidate-avatar" alt={fullName} />
-                      ) : (
-                        <div 
-                          className="candidate-avatar placeholder-avatar" 
-                          style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            backgroundColor: 'var(--primary-light)', 
-                            color: 'var(--primary)', 
-                            fontWeight: 'bold', 
-                            fontSize: '16px',
-                            borderRadius: '50%'
-                          }}
-                        >
-                          {cand.firstName?.charAt(0)}{cand.lastName?.charAt(0)}
-                        </div>
-                      )}
+                      <CandidatePhoto
+                        photo={cand.photo}
+                        firstName={cand.firstName}
+                        lastName={cand.lastName}
+                        className="candidate-avatar"
+                      />
                       <div>
                         <div className="candidate-name">{fullName}</div>
                         <div className="candidate-testimony-snippet">{cand.testimony}</div>

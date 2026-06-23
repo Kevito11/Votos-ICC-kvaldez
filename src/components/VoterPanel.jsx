@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { addVoteToSheets, markVoterParticipation, getCleanPhotoUrl } from '../utils/api';
+import { addVoteToSheets, markVoterParticipation } from '../utils/api';
+import CandidatePhoto from './CandidatePhoto';
 import Tooltip from './Tooltip';
 
 
@@ -315,34 +316,13 @@ export default function VoterPanel({
           {/* Perfil del Candidato */}
           <div className="candidate-vote-profile">
             <div className="candidate-vote-avatar-wrapper">
-              {currentCandidate.photo ? (
-                <img 
-                  src={getCleanPhotoUrl(currentCandidate.photo)} 
-                  className="candidate-vote-avatar" 
-                  alt={`${currentCandidate.firstName || ''} ${currentCandidate.lastName || ''}`} 
-                />
-              ) : (
-                <div 
-                  className="candidate-vote-avatar placeholder-avatar" 
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    backgroundColor: 'var(--primary-light)', 
-                    color: 'var(--primary)', 
-                    fontWeight: 'bold', 
-                    fontSize: '40px',
-                    borderRadius: '50%',
-                    boxShadow: 'var(--shadow-md)',
-                    border: '4px solid var(--primary-light)',
-                    width: '140px',
-                    height: '140px',
-                    margin: '0 auto'
-                  }}
-                >
-                  {currentCandidate.firstName?.charAt(0)}{currentCandidate.lastName?.charAt(0)}
-                </div>
-              )}
+              <CandidatePhoto
+                photo={currentCandidate.photo}
+                firstName={currentCandidate.firstName}
+                lastName={currentCandidate.lastName}
+                className="candidate-vote-avatar"
+                style={{ width: '140px', height: '140px', boxShadow: 'var(--shadow-md)', border: '4px solid var(--primary-light)' }}
+              />
             </div>
             <div className="candidate-vote-name">{currentCandidate.firstName} {currentCandidate.lastName}</div>
             <div className="candidate-vote-tag">Postulante a Miembro</div>
