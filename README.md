@@ -80,32 +80,42 @@ Abre [http://localhost:5173](http://localhost:5173) en tu navegador.
 
 ## ⚙️ Variables de entorno
 
-Crea un archivo `.env` en la raíz del proyecto con las siguientes variables:
+El proyecto solo requiere **dos variables de entorno**. Crea un archivo `.env` en la raíz del proyecto:
 
 ```env
-# URL del Google Apps Script desplegado como Web App
+# URL del Google Apps Script desplegado como Web App (maneja votantes, candidatos y votos)
 VITE_SHEET_URL=https://script.google.com/macros/s/TU_SCRIPT_ID/exec
-
-# URLs específicas por hoja (opcional, si usas el mismo script usa la misma URL)
-VITE_SHEET_URL_VOTERS=https://script.google.com/macros/s/TU_SCRIPT_ID/exec
-VITE_SHEET_URL_CANDIDATES=https://script.google.com/macros/s/TU_SCRIPT_ID/exec
 
 # Contraseña del panel de administrador
 VITE_ADMIN_PASSWORD=tu_contraseña_segura
-
-# Supabase (opcional - para imágenes de candidatos)
-VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
-VITE_SUPABASE_KEY=tu_anon_key
-VITE_SUPABASE_BUCKET=candidatos
 ```
 
 > ⚠️ **Nunca subas el archivo `.env` a GitHub.** Ya está incluido en el `.gitignore`.
 
 ---
 
+## 🌐 Deploy en Netlify
+
+Como Netlify ejecuta el build en sus servidores y **no tiene acceso a tu `.env` local**, debes configurar las variables de entorno directamente en el panel de Netlify:
+
+1. Ve a tu sitio en [app.netlify.com](https://app.netlify.com)
+2. Entra a **Site configuration → Environment variables**
+3. Agrega las siguientes variables:
+
+| Variable | Valor |
+|---|---|
+| `VITE_SHEET_URL` | URL de tu Google Apps Script |
+| `VITE_ADMIN_PASSWORD` | Contraseña del administrador |
+
+4. Guarda y haz un nuevo deploy (o usa **Trigger deploy → Deploy site**)
+
+> 💡 Sin estas variables en Netlify, la app no podrá conectarse a Google Sheets ni proteger el panel de administrador correctamente.
+
+---
+
 ## 📊 Estructura del Google Sheet
 
-El proyecto requiere un Google Sheet con las siguientes hojas:
+El proyecto usa **un solo Google Sheet** con tres hojas internas, todas manejadas por un único Apps Script:
 
 | Hoja | Columnas requeridas |
 |---|---|
@@ -113,7 +123,7 @@ El proyecto requiere un Google Sheet con las siguientes hojas:
 | `Candidatos` | `id`, `nombre`, `descripcion`, `foto` |
 | `Votos` | `votanteId`, `candidatoId`, `voto`, `comentario`, `timestamp` |
 
-El Apps Script debe estar desplegado como **Web App** con acceso público (`Anyone`).
+El Apps Script debe estar desplegado como **Web App** con acceso público (`Anyone`) y es la única URL que necesitas configurar (`VITE_SHEET_URL`).
 
 ---
 
