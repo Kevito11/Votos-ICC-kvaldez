@@ -22,7 +22,6 @@ export default function VoterPanel({
   const suggestionsRef = useRef(null);
 
   // Estados del Wizard de Votación
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [voteStatus, setVoteStatus] = useState(null); // 'approve' | 'disapprove'
   const [disapproveReason, setDisapproveReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -85,7 +84,7 @@ export default function VoterPanel({
   };
 
   const pendingCandidates = getPendingCandidates();
-  const currentCandidate = pendingCandidates[currentStepIndex];
+  const currentCandidate = pendingCandidates[0]; // Siempre tomamos el primer candidato pendiente de la lista
 
   // Manejar la selección de un votante
   const handleSelectVoter = async (voter) => {
@@ -93,7 +92,6 @@ export default function VoterPanel({
     const fullName = `${voter.name || ''} ${voter.lastName || ''}`.trim();
     setVoterSearchText(fullName);
     setSuggestions([]);
-    setCurrentStepIndex(0);
     setVoteStatus(null);
     setDisapproveReason('');
     setHasFinished(false);
@@ -118,9 +116,30 @@ export default function VoterPanel({
       return;
     }
 
-    if (voteStatus === 'disapprove' && !disapproveReason.trim()) {
-      showToast("Debes justificar por qué no apruebas la membresía", "error");
-      return;
+    if (voteStatus === 'disapprove') {
+      const reason = disapproveReason.trim();
+      if (!reason) {
+        showToast("Debes justificar por qué no apruebas la membresía", "error");
+        return;
+      }
+
+      // Validar respuestas evasivas o demasiado simples ("Porque no", "No", etc.)
+      const clean = reason.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim();
+      const blacklist = [
+        "no", "porque no", "por que no", "porque si", "porque sí", "por que si", "por que sí",
+        "nada", "ninguna", "ninguno", "ningun", "ningún", "no se", "no sé", "nose", "ok", "okay",
+        "asdf", "asdfg", "asdfgh", "qwerty", "no quiero", "no lo apruebo", "no apruebo", "no lo se", "no lo sé",
+        "prueba", "test", "sin justificacion", "sin justificación", "sin comentarios"
+      ];
+
+      const isBlacklisted = blacklist.includes(clean);
+      const isTooShort = clean.length < 10;
+      const hasFewWords = clean.split(' ').filter(w => w.length > 1).length < 2;
+
+      if (isBlacklisted || isTooShort || hasFewWords) {
+        showToast("Por favor, proporciona una breve explicación válida de tu objeción (evita respuestas genéricas como 'No' o 'Porque no').", "error");
+        return;
+      }
     }
 
     // Evitar doble votación (seguridad extra en el cliente)
@@ -128,9 +147,7 @@ export default function VoterPanel({
       showToast("Ya has votado por este candidato.", "error");
       setVoteStatus(null);
       setDisapproveReason('');
-      if (currentStepIndex + 1 < pendingCandidates.length) {
-        setCurrentStepIndex(prev => prev + 1);
-      } else {
+      if (pendingCandidates.length <= 1) {
         setHasFinished(true);
       }
       return;
@@ -179,11 +196,9 @@ export default function VoterPanel({
       // Reiniciar estado del voto
       setVoteStatus(null);
       setDisapproveReason('');
-
-      // Avanzar en el wizard
-      if (currentStepIndex + 1 < pendingCandidates.length) {
-        setCurrentStepIndex(prev => prev + 1);
-      } else {
+ 
+      // Avanzar en el wizard (si este era el último candidato pendiente, finaliza el flujo)
+      if (pendingCandidates.length <= 1) {
         setHasFinished(true);
       }
 
@@ -200,7 +215,6 @@ export default function VoterPanel({
     setSelectedVoter(null);
     setVoterSearchText('');
     setSuggestions([]);
-    setCurrentStepIndex(0);
     setVoteStatus(null);
     setDisapproveReason('');
     setHasFinished(false);
@@ -289,7 +303,7 @@ export default function VoterPanel({
           {/* Cabecera Wizard */}
           <div className="wizard-header">
             <div>
-              <span className="step-indicator">Candidato {currentStepIndex + 1} de {pendingCandidates.length}</span>
+              <span className="step-indicator">Candidato {candidates.length - pendingCandidates.length + 1} de {candidates.length}</span>
               <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, margin: '2px 0 0' }}>Votación de Membresía</h3>
             </div>
           </div>

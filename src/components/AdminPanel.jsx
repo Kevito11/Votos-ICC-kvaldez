@@ -18,7 +18,6 @@ import Tooltip from './Tooltip';
 
 export default function AdminPanel({
   config,
-  saveConfig,
   candidates,
   voters,
   votes,
@@ -33,11 +32,7 @@ export default function AdminPanel({
   const [activeTab, setActiveTab] = useState('results');
   const [isExporting, setIsExporting] = useState(false);
 
-  // Estados del Formulario de Configuración
-  const [sheetUrlVotersInput, setSheetUrlVotersInput] = useState(config.sheetUrlVoters || '');
-  const [supabaseUrlInput, setSupabaseUrlInput] = useState(config.supabaseUrl || '');
-  const [supabaseKeyInput, setSupabaseKeyInput] = useState(config.supabaseKey || '');
-  const [supabaseBucketInput, setSupabaseBucketInput] = useState(config.supabaseBucket || 'candidatos');
+  // (Estados locales de formulario de configuración de conexiones removidos)
 
   // Estados del Formulario de Candidato
   const [candFirstName, setCandFirstName] = useState('');
@@ -369,9 +364,10 @@ function getSheetData(sheet) {
   return data;
 }`;
 
-  // URL dinámica del QR
-  const hostUrl = window.location.origin + window.location.pathname;
-  const votingUrl = `${hostUrl}?view=voter`;
+  // URL dinámica del QR (ruta limpia amigable, eliminando /admin del path para apuntar a la ruta de votación)
+  const cleanPathname = window.location.pathname.replace(/\/admin\/?$/, '').replace(/\/+$/, '');
+  const hostUrl = window.location.origin + cleanPathname;
+  const votingUrl = `${hostUrl}/voter`;
   
   const [qrCodeUrl, setQrCodeUrl] = useState(`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(votingUrl)}`);
 
@@ -391,24 +387,7 @@ function getSheetData(sheet) {
     }
   };
 
-  // Copiar código de Apps Script al portapapeles
-  const handleCopyConsolidatedCode = () => {
-    navigator.clipboard.writeText(appsScriptCodeConsolidated);
-    showToast("Código de Apps Script consolidado copiado", "success");
-  };
-
-  // Guardar configuraciones
-  const handleSaveConfigSubmit = (e) => {
-    e.preventDefault();
-    saveConfig({
-      sheetUrl: sheetUrlVotersInput.trim(),
-      sheetUrlVoters: sheetUrlVotersInput.trim(),
-      sheetUrlCandidates: sheetUrlVotersInput.trim(), // Se sincronizan en el mismo valor
-      supabaseUrl: supabaseUrlInput.trim(),
-      supabaseKey: supabaseKeyInput.trim(),
-      supabaseBucket: supabaseBucketInput.trim() || 'candidatos'
-    });
-  };
+  // (Manejadores de guardado y Apps Script para UI removidos de forma segura)
 
   // Convertir archivo de foto a Base64 con compresión para evitar exceder la cuota de localStorage
   const convertAndCompressPhoto = (file) => {
@@ -884,11 +863,17 @@ function getSheetData(sheet) {
       String(v.candidateId || v.ID_Candidato || v["ID Candidato"] || '').trim()
     ));
 
+    const pendingCandidates = candidates.filter(cand => {
+      const candIdStr = String(cand.id).trim();
+      return !uniqueCandsVoted.has(candIdStr);
+    });
+
     return {
       votedCount: uniqueCandsVoted.size,
       totalCount: candidates.length,
       hasVoted: uniqueCandsVoted.size > 0,
-      isComplete: uniqueCandsVoted.size >= candidates.length && candidates.length > 0
+      isComplete: uniqueCandsVoted.size >= candidates.length && candidates.length > 0,
+      pendingCandidates
     };
   };
 
@@ -1060,7 +1045,13 @@ function getSheetData(sheet) {
 
   // Calcular estadísticas por candidato
   const getCandidateStats = (candId) => {
-    const candVotes = votes.filter(v => v.candidateId === candId || v.ID_Candidato === candId || v["ID Candidato"] === candId);
+    const candVotes = votes.filter(v => {
+      const vId = String(v.candidateId || v.ID_Candidato || v["ID Candidato"] || '').trim();
+      const cId = String(candId || '').trim();
+      const vIdInt = parseInt(vId, 10);
+      const cIdInt = parseInt(cId, 10);
+      return vId === cId || (!isNaN(vIdInt) && !isNaN(cIdInt) && vIdInt === cIdInt);
+    });
     
     // Contar aprobados y desaprobados
     let approves = 0;
@@ -1308,14 +1299,7 @@ function getSheetData(sheet) {
             Compartir QR
           </button>
         </Tooltip>
-        <Tooltip text="Configurar los enlaces de Google Sheets y Supabase." position="bottom">
-          <button 
-            className={`tab-btn ${activeTab === 'config' ? 'active' : ''}`}
-            onClick={() => setActiveTab('config')}
-          >
-            Ajustes ⚙️
-          </button>
-        </Tooltip>
+        {/* Pestaña de Ajustes/Configuración removida del menú */}
       </div>
 
       {/* Contenido de Tabs */}
@@ -1974,9 +1958,13 @@ function getSheetData(sheet) {
                         {progress.isComplete ? (
                           <span className="badge badge-success">Ya Votó</span>
                         ) : progress.hasVoted ? (
-                          <span className="badge badge-info" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)' }}>Parcial ({progress.votedCount}/{progress.totalCount})</span>
+                          <Tooltip text={progress.pendingCandidates.length > 0 ? `Pendientes por votar:\n${progress.pendingCandidates.map(c => `• ${c.firstName} ${c.lastName}`).join('\n')}` : 'No hay candidatos pendientes'} position="left">
+                            <span className="badge badge-info" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)', cursor: 'help' }}>Parcial ({progress.votedCount}/{progress.totalCount})</span>
+                          </Tooltip>
                         ) : (
-                          <span className="badge badge-danger" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)' }}>Sin Votación</span>
+                          <Tooltip text={progress.pendingCandidates.length > 0 ? `Pendientes por votar:\n${progress.pendingCandidates.map(c => `• ${c.firstName} ${c.lastName}`).join('\n')}` : 'No hay candidatos pendientes'} position="left">
+                            <span className="badge badge-danger" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', cursor: 'help' }}>Sin Votación</span>
+                          </Tooltip>
                         )}
 
                         {/* Botón Restaurar */}
@@ -2053,102 +2041,7 @@ function getSheetData(sheet) {
         </div>
       )}
 
-      {/* TAB CONFIGURATION */}
-      {activeTab === 'config' && (
-        <div>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: '20px' }}>Configuración de Conexiones</h2>
-          
-          <form onSubmit={handleSaveConfigSubmit} className="card" style={{ marginBottom: '24px', border: '1px solid var(--border)' }}>
-            <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '18px', marginBottom: '16px' }}>Direcciones de Google Sheets y Supabase</h3>
-            
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <label className="form-label">URL de Google Sheets (Apps Script Web App)</label>
-              <input 
-                type="url" 
-                className="form-control" 
-                placeholder="https://script.google.com/macros/s/.../exec"
-                value={sheetUrlVotersInput}
-                onChange={(e) => setSheetUrlVotersInput(e.target.value)}
-                required
-              />
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                Pega la URL de la Web App de tu Google Apps Script consolidado.
-              </span>
-            </div>
-
-            <div className="grid-3" style={{ marginBottom: '16px' }}>
-              <div className="form-group">
-                <label className="form-label">URL de Supabase (Opcional)</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  placeholder="https://xxxxxx.supabase.co"
-                  value={supabaseUrlInput}
-                  onChange={(e) => setSupabaseUrlInput(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Clave Pública Anon Supabase</label>
-                <input 
-                  type="password" 
-                  className="form-control" 
-                  placeholder="eyJhbGciOi..."
-                  value={supabaseKeyInput}
-                  onChange={(e) => setSupabaseKeyInput(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Nombre del Bucket</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  placeholder="candidatos"
-                  value={supabaseBucketInput}
-                  onChange={(e) => setSupabaseBucketInput(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <Tooltip text="Guardar los enlaces de Google Sheets y credenciales de Supabase en este navegador.">
-                <button type="submit" className="btn btn-primary">
-                  Guardar Configuración
-                </button>
-              </Tooltip>
-            </div>
-          </form>
-
-          {/* Sección de Instrucciones y Código del Apps Script */}
-          <div className="card" style={{ border: '1px solid var(--border)' }}>
-            <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '18px', marginBottom: '16px' }}>Código Único de Google Apps Script</h3>
-            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Para que tu sistema funcione en un único libro de Google Sheets, sigue estos pasos:
-            </p>
-            <ol style={{ fontSize: '14px', color: 'var(--text-secondary)', paddingLeft: '20px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <li>Crea una nueva hoja de cálculo en Google Sheets.</li>
-              <li>Abre <strong>Extensiones &gt; Apps Script</strong>.</li>
-              <li>Borra todo el código existente y pega el código consolidado que se muestra abajo.</li>
-              <li>Haz clic en <strong>Implementar &gt; Nueva implementación</strong>.</li>
-              <li>Selecciona tipo <strong>Aplicación web</strong>. Configura para ejecutar como "Tú" y con acceso a "Cualquiera" (Anyone).</li>
-              <li>Copia la URL de la aplicación web obtenida y pégala en el campo de configuración de arriba.</li>
-            </ol>
-
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
-              <Tooltip text="Copiar el código Javascript necesario para configurar la automatización en Google Sheets.">
-                <button type="button" className="btn btn-secondary" onClick={handleCopyConsolidatedCode} style={{ fontSize: '13px' }}>
-                  Copiar Código Apps Script Consolidado
-                </button>
-              </Tooltip>
-            </div>
-
-            <pre style={{ backgroundColor: 'var(--bg-input)', padding: '16px', borderRadius: 'var(--radius-md)', overflowX: 'auto', fontSize: '12px', maxHeight: '300px', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
-              {appsScriptCodeConsolidated}
-            </pre>
-          </div>
-        </div>
-      )}
+      {/* TAB CONFIGURATION REMOVIDA DE LA UI */}
 
       {cropImageFile && (
         <ImageCropper 

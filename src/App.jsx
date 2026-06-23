@@ -8,62 +8,17 @@ import './App.css';
 
 
 function App() {
-  // Configuración de conexiones (persistencia local)
-  const [config, setConfig] = useState(() => {
-    const saved = localStorage.getItem('icc_voting_config');    const defaultConfig = {
-      sheetUrl: 'https://script.google.com/macros/s/AKfycbzh8dvSWSPw7UqhJCU0-xsUs_aFZwAN2ytzVUW_19wwHKLUdc6BEFefnRckVmfoDI-aOA/exec',
-      sheetUrlVoters: 'https://script.google.com/macros/s/AKfycbzh8dvSWSPw7UqhJCU0-xsUs_aFZwAN2ytzVUW_19wwHKLUdc6BEFefnRckVmfoDI-aOA/exec',
-      sheetUrlCandidates: 'https://script.google.com/macros/s/AKfycbzh8dvSWSPw7UqhJCU0-xsUs_aFZwAN2ytzVUW_19wwHKLUdc6BEFefnRckVmfoDI-aOA/exec',
-      supabaseUrl: '',
-      supabaseKey: '',
-      supabaseBucket: 'candidatos'
+  // Configuración de conexiones (definida en código y sobreescribible vía variables de entorno .env / Netlify)
+  const [config] = useState(() => {
+    const defaultSheetUrl = import.meta.env.VITE_SHEET_URL || 'https://script.google.com/macros/s/AKfycbzh8dvSWSPw7UqhJCU0-xsUs_aFZwAN2ytzVUW_19wwHKLUdc6BEFefnRckVmfoDI-aOA/exec';
+    return {
+      sheetUrl: defaultSheetUrl,
+      sheetUrlVoters: import.meta.env.VITE_SHEET_URL_VOTERS || defaultSheetUrl,
+      sheetUrlCandidates: import.meta.env.VITE_SHEET_URL_CANDIDATES || defaultSheetUrl,
+      supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
+      supabaseKey: import.meta.env.VITE_SUPABASE_KEY || '',
+      supabaseBucket: import.meta.env.VITE_SUPABASE_BUCKET || 'candidatos'
     };
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        let updated = false;
-
-        // Migración a estructura unificada
-        if (parsed.sheetUrl) {
-          parsed.sheetUrlVoters = parsed.sheetUrl;
-          parsed.sheetUrlCandidates = parsed.sheetUrl;
-          updated = true;
-        } else if (parsed.sheetUrlVoters) {
-          parsed.sheetUrl = parsed.sheetUrlVoters;
-          parsed.sheetUrlCandidates = parsed.sheetUrlVoters;
-          updated = true;
-        }
-
-        // Si el usuario tiene el URL por defecto antiguo, forzar actualización al nuevo URL proporcionado
-        const oldDefaults = [
-          'https://script.google.com/macros/s/AKfycbxNyYPjtozsB3DoupMxCEQFluVctCP2moyc90Xn8RQPkmnCKZtiWGj8sCRee1CYBfDcew/exec',
-          'https://script.google.com/macros/s/AKfycbyIxYEnN8i38ukHeBVlZ1iNyLxChAvHJUmoLO_rtG72hJSySUKm-5WiJLZJ3Zfkv7PgWQ/exec',
-          'https://script.google.com/macros/s/AKfycbxec44t3dSFfF0cuOvuWwetAWmkCJTJrSCHoZVJ0PKbPBg_JXXdO4ZCrRUj-UFzXxfug/exec',
-          'https://script.google.com/macros/s/AKfycbzYec44t3dSFfF0cuOvuWwetAWmkCJTJrSCHoZVJ0PKbPBg_JXXdO4ZCrRUj-UFzXxfug/exec'
-        ];
-        if (oldDefaults.includes(parsed.sheetUrl) || oldDefaults.includes(parsed.sheetUrlVoters)) {
-          parsed.sheetUrl = defaultConfig.sheetUrl;
-          parsed.sheetUrlVoters = defaultConfig.sheetUrlVoters;
-          parsed.sheetUrlCandidates = defaultConfig.sheetUrlCandidates;
-          updated = true;
-        }
-
-        if (!parsed.sheetUrl) {
-          parsed.sheetUrl = defaultConfig.sheetUrl;
-          parsed.sheetUrlVoters = defaultConfig.sheetUrlVoters;
-          parsed.sheetUrlCandidates = defaultConfig.sheetUrlCandidates;
-          updated = true;
-        }
-
-        if (updated) {
-          localStorage.setItem('icc_voting_config', JSON.stringify(parsed));
-        }
-        return parsed;
-      } catch (e) {
-        console.error("Error al parsear config de localStorage:", e);
-      }
-    }
-    return defaultConfig;
   });
 
   // Datos de la aplicación
@@ -77,35 +32,89 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const hasLoadedFromSheetsRef = useRef(false);
   
-  // Enrutamiento simple basado en URL o estado local
+  // Seguridad y autenticación del Administrador
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
+    return sessionStorage.getItem('icc_admin_authenticated') === 'true';
+  });
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState(false);
+
+  const handleAdminLoginSubmit = (e) => {
+    e.preventDefault();
+    const correctPassword = import.meta.env.VITE_ADMIN_PASSWORD || '1234';
+    if (adminPasswordInput === correctPassword) {
+      setIsAdminAuthenticated(true);
+      sessionStorage.setItem('icc_admin_authenticated', 'true');
+      setAdminPasswordInput('');
+      setAdminLoginError(false);
+      showToast("Acceso de administrador concedido", "success");
+    } else {
+      setAdminLoginError(true);
+      showToast("Contraseña incorrecta", "error");
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminAuthenticated(false);
+    sessionStorage.removeItem('icc_admin_authenticated');
+    showToast("Sesión de administrador cerrada", "info");
+  };
+
+  // Guardar referencia actualizada de la función logout para evitar re-vincular los listeners
+  const logoutRef = useRef(handleAdminLogout);
+  useEffect(() => {
+    logoutRef.current = handleAdminLogout;
+  });
+
+  // Cierre de sesión automático tras 5 minutos de inactividad
+  useEffect(() => {
+    if (!isAdminAuthenticated) return;
+
+    let inactivityTimer;
+
+    const resetInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        logoutRef.current();
+        showToast("Sesión de administrador cerrada por inactividad de 5 minutos", "warning");
+      }, 5 * 60 * 1000); // 5 minutos (300000 ms)
+    };
+
+    const userActivityEvents = ['mousemove', 'mousedown', 'keypress', 'scroll', 'touchstart'];
+    userActivityEvents.forEach(event => window.addEventListener(event, resetInactivityTimer));
+
+    resetInactivityTimer();
+
+    return () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      userActivityEvents.forEach(event => window.removeEventListener(event, resetInactivityTimer));
+    };
+  }, [isAdminAuthenticated]);
+  
+  // Enrutamiento simple basado en URL (rutas limpias)
   const [view, setView] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('view') || 'landing';
+    const path = window.location.pathname.replace(/^\/|\/$/g, '');
+    return (path === '' || path === 'index.html') ? 'landing' : path;
   });
 
   // Escuchar cambios de historial en el navegador
   useEffect(() => {
     const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      setView(params.get('view') || 'landing');
+      const path = window.location.pathname.replace(/^\/|\/$/g, '');
+      setView((path === '' || path === 'index.html') ? 'landing' : path);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Función para navegar actualizando la URL
+  // Función para navegar actualizando la URL con rutas limpias
   const navigate = (newView) => {
     setView(newView);
-    const url = newView === 'landing' ? window.location.pathname : `${window.location.pathname}?view=${newView}`;
+    const url = newView === 'landing' ? '/' : `/${newView}`;
     window.history.pushState({ view: newView }, '', url);
   };
 
-  // Guardar configuración y actualizar conexión
-  const saveConfig = (newConfig) => {
-    setConfig(newConfig);
-    localStorage.setItem('icc_voting_config', JSON.stringify(newConfig));
-    showToast("Configuración guardada correctamente", "success");
-  };
+  // (saveConfig ha sido removido porque la configuración ahora se gestiona directamente en código/entorno)
 
   // Toast System Helper
   const showToast = (message, type = 'info') => {
@@ -199,7 +208,7 @@ function App() {
             const finalVoterLast = voterLastName || oldVoterName.split(' ').slice(1).join(' ') || '';
 
             return {
-              candidateId: v.candidateId || v.ID_Candidato || v["ID Candidato"] || v.candidateid || '',
+              candidateId: String(v.candidateId || v.ID_Candidato || v["ID Candidato"] || v.candidateid || '').trim(),
               candidateFirstName: finalCandFirst,
               candidateLastName: finalCandLast,
               candidateName: `${finalCandFirst} ${finalCandLast}`.trim(),
@@ -362,46 +371,19 @@ function App() {
 
       {/* Header General */}
       <header className="app-header">
-        <div 
-          className="logo-section" 
-          onClick={view === 'voter' ? undefined : () => navigate('landing')} 
-          style={{ cursor: view === 'voter' ? 'default' : 'pointer' }}
-        >
-          <div>
-            <span className="church-logo">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 22h20L12 2z"/>
-                <path d="M12 7v10M9 11h6"/>
-              </svg>
-              ICC
-            </span>
-            <div className="app-title-sub">Convertidos a Cristo</div>
-          </div>
+        <div className="logo-section">
+          <picture>
+            <source srcSet="/logo-white.png" media="(prefers-color-scheme: dark)" />
+            <img 
+              src="/logo-color.png" 
+              alt="Iglesia de Convertidos a Cristo" 
+              className="church-logo-img" 
+            />
+          </picture>
         </div>
 
         <div className="nav-buttons">
-          {view !== 'landing' && view !== 'voter' && (
-            <Tooltip text="Regresar a la pantalla de bienvenida principal." position="bottom">
-              <button className="btn btn-secondary" onClick={() => navigate('landing')}>
-                Inicio
-              </button>
-            </Tooltip>
-          )}
-          {view === 'landing' && (
-            <>
-              <Tooltip text="Ir directamente a la cabina de votación." position="bottom">
-                <button className="btn btn-primary" onClick={() => navigate('voter')}>
-                  Votar
-                </button>
-              </Tooltip>
-              <Tooltip text="Ir al panel de administración del sistema." position="bottom">
-                <button className="btn btn-secondary" onClick={() => navigate('admin')}>
-                  Administración
-                </button>
-              </Tooltip>
-            </>
-          )}
-          {isConnected && view !== 'landing' && view !== 'voter' && (
+          {isConnected && view === 'admin' && isAdminAuthenticated && (
             <Tooltip text="Sincronizar y descargar los últimos datos desde Google Sheets." position="bottom">
               <button 
                 className={`btn btn-secondary ${isLoading ? 'loading' : ''}`} 
@@ -412,67 +394,103 @@ function App() {
               </button>
             </Tooltip>
           )}
+          {view === 'admin' && isAdminAuthenticated && (
+            <Tooltip text="Cerrar la sesión administrativa actual." position="bottom">
+              <button 
+                className="btn btn-danger" 
+                onClick={handleAdminLogout}
+                style={{ padding: '8px 14px', fontSize: '13px' }}
+              >
+                Cerrar Sesión
+              </button>
+            </Tooltip>
+          )}
         </div>
       </header>
 
       {/* Renderizado de vistas */}
       {view === 'landing' && (
         <main style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', py: 40 }}>
-          <div style={{ textAlign: 'center', maxWidth: '600px', margin: 'auto' }}>
-            <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '3.5rem', lineHeight: '1.1', marginBottom: '16px', background: 'linear-gradient(135deg, var(--primary), var(--accent))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              Sistema de Votación de Membresía
-            </h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '1.25rem', marginBottom: '40px' }}>
-              Bienvenido al portal oficial de recepción de membresía de la Iglesia de Convertidos a Cristo. Selecciona una opción para comenzar.
+          <div className="card" style={{ textAlign: 'center', maxWidth: '480px', margin: 'auto', padding: '40px 32px', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border)' }}>
+            <div style={{ marginBottom: '24px' }}>
+              <picture style={{ display: 'block', margin: '0 auto' }}>
+                <source srcSet="/logo-white.png" media="(prefers-color-scheme: dark)" />
+                <img 
+                  src="/logo-color.png" 
+                  alt="Iglesia de Convertidos a Cristo" 
+                  className="landing-logo"
+                  style={{ height: '54px', maxWidth: '100%', objectFit: 'contain' }}
+                />
+              </picture>
+            </div>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: 'var(--accent-light)', display: 'flex', alignItems: 'center', color: 'var(--accent)', fontSize: '36px', margin: '0 auto 24px', justifyContent: 'center' }}>
+              🔒
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '24px', marginBottom: '16px', color: 'var(--text-primary)' }}>
+              Acceso Restringido
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '15px', lineHeight: '1.6', marginBottom: '16px' }}>
+              Esta dirección no cuenta con un portal de acceso público para el sistema de votación.
             </p>
-
-            <div className="grid-2" style={{ marginTop: '24px' }}>
-              <div className="card" onClick={() => navigate('voter')} style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '40px 24px', textAlign: 'center' }}>
-                <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justify: 'center', color: 'var(--primary)', fontSize: '24px', justifyContent: 'center' }}>
-                  📥
-                </div>
-                <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '20px', fontWeight: 700 }}>Panel de Votación</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-                  Accede para emitir tu voto de aprobación de nuevos miembros utilizando tu nombre.
-                </p>
-                <Tooltip text="Iniciar el asistente de votación para emitir tu veredicto." position="top">
-                  <button className="btn btn-primary" style={{ width: '100%', marginTop: '12px' }}>Ingresar como Votante</button>
-                </Tooltip>
-              </div>
-
-              <div className="card" onClick={() => navigate('admin')} style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '40px 24px', textAlign: 'center' }}>
-                <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'var(--accent-light)', display: 'flex', alignItems: 'center', justify: 'center', color: 'var(--accent)', fontSize: '24px', justifyContent: 'center' }}>
-                  ⚙️
-                </div>
-                <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '20px', fontWeight: 700 }}>Administración</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-                  Registra candidatos, sube fotos, administra la lista de votantes autorizados y visualiza resultados.
-                </p>
-                <Tooltip text="Acceder a las herramientas de control y configuración." position="top">
-                  <button className="btn btn-secondary" style={{ width: '100%', marginTop: '12px' }}>Ingresar como Administrador</button>
-                </Tooltip>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '48px' }}>
-              {!isConnected ? (
-                <span className="conn-status status-disconnected">
-                  ⚡ Modo Local Activado (Configurar Google Sheets en Admin)
-                </span>
-              ) : (
-                <span className="conn-status status-connected">
-                  ● Conectado a Google Sheets
-                </span>
-              )}
-            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13.5px', lineHeight: '1.6' }}>
+              Por favor, utilice los enlaces directos o los códigos QR oficiales proporcionados por la administración de la iglesia para ingresar al panel de votación o administración.
+            </p>
           </div>
         </main>
       )}
 
-      {view === 'admin' && (
+      {view === 'admin' && !isAdminAuthenticated && (
+        <main style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', py: 40 }}>
+          <form onSubmit={handleAdminLoginSubmit} className="card" style={{ textAlign: 'center', maxWidth: '380px', width: '100%', margin: 'auto', padding: '32px 24px', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border)' }}>
+            <div style={{ marginBottom: '20px' }}>
+              <picture style={{ display: 'block', margin: '0 auto' }}>
+                <source srcSet="/logo-white.png" media="(prefers-color-scheme: dark)" />
+                <img 
+                  src="/logo-color.png" 
+                  alt="Iglesia de Convertidos a Cristo" 
+                  className="login-logo"
+                  style={{ height: '48px', maxWidth: '100%', objectFit: 'contain' }}
+                />
+              </picture>
+            </div>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', color: 'var(--primary)', fontSize: '28px', margin: '0 auto 16px', justifyContent: 'center' }}>
+              🔑
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '20px', marginBottom: '8px', color: 'var(--text-primary)' }}>
+              Acceso de Administrador
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13.5px', marginBottom: '24px' }}>
+              Ingrese la contraseña de seguridad para acceder al panel de control y configuraciones.
+            </p>
+
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <input 
+                type="password" 
+                className="form-control" 
+                placeholder="Contraseña"
+                value={adminPasswordInput}
+                onChange={(e) => setAdminPasswordInput(e.target.value)}
+                style={{ textAlign: 'center', fontSize: '16px', padding: '12px' }}
+                autoFocus
+                required
+              />
+              {adminLoginError && (
+                <div style={{ color: 'var(--danger)', fontSize: '12.5px', marginTop: '8px', fontWeight: '600' }}>
+                  Contraseña incorrecta. Intente de nuevo.
+                </div>
+              )}
+            </div>
+
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '12px' }}>
+              Ingresar al Panel
+            </button>
+          </form>
+        </main>
+      )}
+
+      {view === 'admin' && isAdminAuthenticated && (
         <AdminPanel
           config={config}
-          saveConfig={saveConfig}
           candidates={candidates}
           voters={voters}
           votes={votes}

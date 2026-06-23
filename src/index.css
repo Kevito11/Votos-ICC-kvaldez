@@ -134,30 +134,50 @@ body {
   gap: 12px;
 }
 
-.church-logo {
-  font-size: 24px;
-  font-weight: 800;
-  font-family: var(--font-heading);
-  letter-spacing: -0.5px;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Logos e Identidad Visual ICC */
+.church-logo-img {
+  height: 48px;
+  width: auto;
+  object-fit: contain;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s ease;
+  filter: brightness(1);
 }
 
-.church-logo svg {
-  color: var(--accent);
+.church-logo-img:hover {
+  transform: scale(1.02) translateY(-0.5px);
+  filter: brightness(1.08);
 }
 
-.app-title-sub {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  font-weight: 600;
-  margin-top: -2px;
+.landing-logo,
+.login-logo {
+  display: block;
+  margin: 0 auto;
+  opacity: 0;
+  animation: logoEntrance 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s ease;
+}
+
+.landing-logo:hover,
+.login-logo:hover {
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.05);
+}
+
+@keyframes logoEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 576px) {
+  .church-logo-img {
+    height: 38px;
+  }
 }
 
 .nav-buttons {
@@ -1012,10 +1032,10 @@ textarea.form-control {
   border-radius: var(--radius-sm);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.08);
   z-index: 9999;
-  white-space: normal;
+  white-space: pre-line;
   width: max-content;
   max-width: 220px;
-  text-align: center;
+  text-align: left;
   pointer-events: none;
   user-select: none;
 }
@@ -1168,5 +1188,41 @@ textarea.form-control {
     opacity: 1;
     transform: translate(8px, -50%) scale(1);
   }
+}
+
+/* Barra de Progreso de Votaciones / Resultados */
+.progress-container {
+  margin-top: 16px;
+  width: 100%;
+}
+
+.progress-bar-bg {
+  height: 10px;
+  width: 100%;
+  background-color: var(--border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.progress-bar-fill-approve {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.progress-bar-fill-disapprove {
+  height: 100%;
+  background: linear-gradient(90deg, #ef4444, #f87171);
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.progress-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
 }
 
