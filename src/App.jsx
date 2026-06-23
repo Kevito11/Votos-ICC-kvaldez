@@ -175,11 +175,14 @@ function App() {
 
           // Mapear votantes a objeto { id, name, lastName }
           const mappedVoters = (votersData.voters || []).map((v, index) => {
-            if (typeof v === 'object' && v !== null) {
+            if (v && typeof v === 'object') {
               return {
                 id: v.id || v.ID || v.Id || `voter-${index + 1}`,
                 name: v.name || v.Nombre || v.nombre || '',
-                lastName: v.lastName || v.Apellido || v.apellido || ''
+                lastName: v.lastName || v.Apellido || v.apellido || '',
+                // Campos de participación (voto secreto)
+                hasVoted: v.hasVoted === true || v.hasVoted === 'TRUE' || v.hasVoted === 'true' || v.Votó === 'TRUE' || v.Votó === true || false,
+                votedAt: v.votedAt || v.FechaVoto || ''
               };
             }
             // Fallback por si la hoja aún tiene formato antiguo
@@ -187,37 +190,31 @@ function App() {
             return {
               id: `voter-${index + 1}`,
               name: parts[0] || '',
-              lastName: parts.slice(1).join(' ') || ''
+              lastName: parts.slice(1).join(' ') || '',
+              hasVoted: false,
+              votedAt: ''
             };
           });
 
-          // Mapear votos desde la única hoja
+          // Mapear votos desde la única hoja (VOTO SECRETO: sin nombre del votante)
           const mappedVotes = (votesData.votes || []).map(v => {
             const candidateFirstName = v.candidateFirstName || v["Nombre Candidato"] || v.Nombre_Candidato || '';
             const candidateLastName = v.candidateLastName || v["Apellido Candidato"] || v.Apellido_Candidato || '';
-            const voterFirstName = v.voterFirstName || v["Nombre Miembro"] || v.Nombre_Miembro || v.NombreMiembro || '';
-            const voterLastName = v.voterLastName || v["Apellido Miembro"] || v.Apellido_Miembro || v.ApellidoMiembro || '';
-            
-            // Fallbacks por si la hoja aún tiene formato antiguo (un solo campo)
             const oldCandName = v.candidateName || v.Nombre_Candidato || v["Nombre Candidato"] || v.Solicitante || v.solicitante || '';
-            const oldVoterName = v.voterName || v.Nombre_Votante || v["Nombre Votante"] || v["Nombre del Miembro"] || '';
 
             const finalCandFirst = candidateFirstName || oldCandName.split(' ')[0] || '';
             const finalCandLast = candidateLastName || oldCandName.split(' ').slice(1).join(' ') || '';
-            const finalVoterFirst = voterFirstName || oldVoterName.split(' ')[0] || '';
-            const finalVoterLast = voterLastName || oldVoterName.split(' ').slice(1).join(' ') || '';
 
             return {
               candidateId: String(v.candidateId || v.ID_Candidato || v["ID Candidato"] || v.candidateid || '').trim(),
               candidateFirstName: finalCandFirst,
               candidateLastName: finalCandLast,
               candidateName: `${finalCandFirst} ${finalCandLast}`.trim(),
-              voterFirstName: finalVoterFirst,
-              voterLastName: finalVoterLast,
-              voterName: `${finalVoterFirst} ${finalVoterLast}`.trim(),
-              status: v.status || v.Estado || v.estado || v.status || '',
-              reason: v.reason || v.Motivo || v.motivo || v.reason || '',
-              timestamp: v.timestamp || v.Fecha || v.fecha || v.timestamp || new Date().toISOString()
+              // ID opaco del votante (sin nombre — voto secreto)
+              voterId: String(v.voterId || v.VotanteID || v["ID Votante"] || '').trim(),
+              status: v.status || v.Estado || v.estado || '',
+              reason: v.reason || v.Motivo || v.motivo || '',
+              timestamp: v.timestamp || v.Fecha || v.fecha || new Date().toISOString()
             };
           });
 

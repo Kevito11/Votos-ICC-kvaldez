@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { addVoteToSheets, getCleanPhotoUrl } from '../utils/api';
+import { addVoteToSheets, markVoterParticipation, getCleanPhotoUrl } from '../utils/api';
 import Tooltip from './Tooltip';
 
 
@@ -46,41 +46,19 @@ export default function VoterPanel({
     return () => clearTimeout(timer);
   }, [voterSearchText, voters]);
 
-  // Verificar si un votante ya ha votado por un candidato específico de forma estricta
-  const hasVotedFor = (voter, candidateId) => {
-    const voterFirstNameNormalized = (voter.name || '').trim().toLowerCase();
-    const voterLastNameNormalized = (voter.lastName || '').trim().toLowerCase();
-    
-    return votes.some(v => {
-      // Comparar IDs de forma robusta (tanto string como numérica)
-      const cId = String(v.candidateId || v.ID_Candidato || v["ID Candidato"] || '').trim();
-      const targetId = String(candidateId || '').trim();
-      
-      const cIdInt = parseInt(cId, 10);
-      const targetIdInt = parseInt(targetId, 10);
-      
-      const idsMatch = cId === targetId || (!isNaN(cIdInt) && !isNaN(targetIdInt) && cIdInt === targetIdInt);
-      if (!idsMatch) return false;
-
-      // Comparar por campos de nombre/apellido divididos si están disponibles
-      const vf = (v.voterFirstName || '').trim().toLowerCase();
-      const vl = (v.voterLastName || '').trim().toLowerCase();
-      
-      if (vf && vl) {
-        return vf === voterFirstNameNormalized && vl === voterLastNameNormalized;
-      }
-      
-      // Fallback a nombre completo consolidado
-      const voterFullName = `${voterFirstNameNormalized} ${voterLastNameNormalized}`.trim();
-      const vName = (v.voterName || v["Nombre del Miembro"] || v.Nombre_Miembro || v.Nombre_Votante || v["Nombre Votante"] || '').trim().toLowerCase();
-      return vName === voterFullName;
-    });
+  // Verificar si un votante ya ha participado en la votación (VOTO SECRETO)
+  // Usa el campo hasVoted del votante en lugar de buscar votos por nombre
+  const hasVotedFor = (voter, _candidateId) => {
+    // Si el votante ya fue marcado como participante, se le considera como que ya votó
+    return voter?.hasVoted === true;
   };
 
   // Obtener la lista de candidatos pendientes para el votante seleccionado
   const getPendingCandidates = () => {
     if (!selectedVoter) return [];
-    return candidates.filter(cand => !hasVotedFor(selectedVoter, cand.id));
+    // Si ya participó, no hay candidatos pendientes
+    if (selectedVoter.hasVoted) return [];
+    return candidates;
   };
 
   const pendingCandidates = getPendingCandidates();
@@ -158,20 +136,34 @@ export default function VoterPanel({
       candidateId: currentCandidate.id,
       candidateFirstName: currentCandidate.firstName,
       candidateLastName: currentCandidate.lastName,
-      voterFirstName: selectedVoter.name,
-      voterLastName: selectedVoter.lastName,
+      voterId: selectedVoter.id, // ID opaco — no expone el nombre del votante
       status: voteStatus === 'approve' ? 'Aprueba' : 'No Aprueba',
       reason: voteStatus === 'disapprove' ? disapproveReason.trim() : ''
     };
+
+    // ¿Es el primer voto de esta sesión? (para marcar participación después del primer voto)
+    const isFirstVote = pendingCandidates.length === candidates.length;
 
     try {
       if (config.sheetUrlCandidates) {
         if (!isConnected) {
           throw new Error("No hay conexión con Google Sheets. Por favor, verifica tu conexión a internet.");
         }
-        // Enviar a Google Sheets
+        // Enviar voto secreto a Google Sheets
         await addVoteToSheets(config.sheetUrlCandidates, voteData);
-        showToast("Voto registrado en Google Sheets", "success");
+
+        // Marcar al votante como participante en el primer voto para prevenir doble votación
+        if (isFirstVote) {
+          try {
+            await markVoterParticipation(config.sheetUrlCandidates, { voterId: selectedVoter.id });
+            // Actualizar el estado local del votante inmediatamente
+            setVotes(prev => prev); // trigger re-read
+          } catch (markErr) {
+            console.warn("No se pudo marcar participación:", markErr);
+          }
+        }
+
+        showToast("Voto registrado", "success");
         // Sincronizar datos globales esperando a que termine
         await refreshData();
       } else {
@@ -179,7 +171,7 @@ export default function VoterPanel({
         const voteWithTime = {
           candidateId: voteData.candidateId,
           candidateName: `${voteData.candidateFirstName} ${voteData.candidateLastName}`.trim(),
-          voterName: `${voteData.voterFirstName} ${voteData.voterLastName}`.trim(),
+          voterId: voteData.voterId,
           status: voteData.status,
           reason: voteData.reason,
           timestamp: new Date().toISOString()
@@ -190,6 +182,18 @@ export default function VoterPanel({
         
         setVotes(updatedVotes);
         localStorage.setItem('icc_local_votes', JSON.stringify(updatedVotes));
+
+        // Marcar participación localmente en el primer voto
+        if (isFirstVote) {
+          const localVoters = localStorage.getItem('icc_local_voters');
+          const currentVoters = localVoters ? JSON.parse(localVoters) : [];
+          const updatedVoters = currentVoters.map(v => 
+            v.id === selectedVoter.id ? { ...v, hasVoted: true, votedAt: new Date().toISOString() } : v
+          );
+          localStorage.setItem('icc_local_voters', JSON.stringify(updatedVoters));
+          setSelectedVoter(prev => ({ ...prev, hasVoted: true }));
+        }
+
         showToast("Voto registrado localmente", "success");
       }
 

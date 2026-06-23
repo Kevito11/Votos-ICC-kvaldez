@@ -64,18 +64,43 @@ async function postToSheets(sheetUrl, payload) {
 }
 
 /**
- * Registrar un voto en Google Sheets
+ * Registrar un voto en Google Sheets (VOTO SECRETO: sin nombre de votante)
+ * El voterId es un ID opaco interno que no expone la identidad del votante.
  */
-export async function addVoteToSheets(sheetUrl, { candidateId, candidateFirstName, candidateLastName, voterFirstName, voterLastName, status, reason }) {
+export async function addVoteToSheets(sheetUrl, { candidateId, candidateFirstName, candidateLastName, voterId, status, reason }) {
   return postToSheets(sheetUrl, {
     action: "addVote",
     candidateId,
     candidateFirstName,
     candidateLastName,
-    voterFirstName,
-    voterLastName,
+    voterId,   // ID opaco — no se almacena el nombre del votante
     status,
     reason,
+  });
+}
+
+/**
+ * Marcar que un votante YA PARTICIPÓ en la sesión de votación.
+ * Esto permite prevenir doble votación sin revelar qué votó.
+ * @param {string} sheetUrl
+ * @param {{ voterId: string }} param
+ */
+export async function markVoterParticipation(sheetUrl, { voterId }) {
+  return postToSheets(sheetUrl, {
+    action: "markParticipation",
+    voterId,
+  });
+}
+
+/**
+ * Limpiar la marca de participación de un votante (permite que vuelva a votar)
+ * @param {string} sheetUrl
+ * @param {{ voterId: string }} param
+ */
+export async function resetVoterParticipation(sheetUrl, { voterId }) {
+  return postToSheets(sheetUrl, {
+    action: "resetParticipation",
+    voterId,
   });
 }
 
@@ -209,13 +234,13 @@ export function getCleanPhotoUrl(photoUrl) {
 }
 
 /**
- * Restaurar los votos de un votante específico en Google Sheets (permitiéndole volver a votar)
- * Reutiliza la acción masiva 'resetMultipleVotersVotes' para asegurar compatibilidad sin requerir redespliegue de Apps Script.
+ * Restaurar la participación de un votante específico (permitiéndole volver a votar)
+ * Limpia hasVoted en la hoja Miembros y borra sus votos anónimos de la hoja Votos.
  */
-export async function resetVoterVotesInSheets(sheetUrl, { voterFirstName, voterLastName }) {
+export async function resetVoterVotesInSheets(sheetUrl, { voterId }) {
   return postToSheets(sheetUrl, {
     action: "resetMultipleVotersVotes",
-    voters: [{ firstName: voterFirstName, lastName: voterLastName }]
+    voters: [{ voterId }]
   });
 }
 
@@ -229,11 +254,13 @@ export async function clearVotesInSheets(sheetUrl) {
 }
 
 /**
- * Restaurar los votos de múltiples votantes en Google Sheets
+ * Restaurar la participación de múltiples votantes en Google Sheets
+ * @param {string} sheetUrl
+ * @param {Array<{voterId: string}>} votersList
  */
 export async function resetMultipleVotersVotesInSheets(sheetUrl, votersList) {
   return postToSheets(sheetUrl, {
     action: "resetMultipleVotersVotes",
-    voters: votersList // Lista de objetos { firstName, lastName }
+    voters: votersList // Lista de objetos { voterId }
   });
 }

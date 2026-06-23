@@ -85,7 +85,14 @@ function doGet(e) {
   
   if (!sheet.getSheetByName("Votos")) {
     var newSheet = sheet.insertSheet("Votos");
-    newSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "Nombre Miembro", "Apellido Miembro"]);
+    newSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "ID Votante", "Timestamp"]);
+  }
+
+  // Asegurar columnas Has Voted y Fecha Voto en hoja Miembros
+  var membersHeaders = membersSheet.getRange(1, 1, 1, membersSheet.getLastColumn()).getValues()[0];
+  if (membersHeaders.indexOf("Has Voted") === -1) {
+    membersSheet.getRange(1, membersHeaders.length + 1).setValue("Has Voted");
+    membersSheet.getRange(1, membersHeaders.length + 2).setValue("Fecha Voto");
   }
 
   var action = e.parameter.action;
@@ -130,7 +137,17 @@ function doPost(e) {
   
   if (!sheet.getSheetByName("Votos")) {
     var newSheet = sheet.insertSheet("Votos");
-    newSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "Nombre Miembro", "Apellido Miembro"]);
+    newSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "ID Votante", "Timestamp"]);
+  }
+
+  // Asegurar columnas Has Voted y Fecha Voto en hoja Miembros
+  var membersSheet2 = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
+  if (membersSheet2) {
+    var mHeaders = membersSheet2.getRange(1, 1, 1, membersSheet2.getLastColumn()).getValues()[0];
+    if (mHeaders.indexOf("Has Voted") === -1) {
+      membersSheet2.getRange(1, mHeaders.length + 1).setValue("Has Voted");
+      membersSheet2.getRange(1, mHeaders.length + 2).setValue("Fecha Voto");
+    }
   }
 
   var data = JSON.parse(e.postData.contents);
@@ -138,12 +155,14 @@ function doPost(e) {
 
   if (action === "updateVoters") {
     membersSheet.clear();
-    membersSheet.appendRow(["ID", "Nombre", "Apellido"]);
+    membersSheet.appendRow(["ID", "Nombre", "Apellido", "Has Voted", "Fecha Voto"]);
     data.voters.forEach(function(v) {
       membersSheet.appendRow([
         v.id || v.ID || "", 
         v.name || v.Nombre || "", 
-        v.lastName || v.Apellido || ""
+        v.lastName || v.Apellido || "",
+        v.hasVoted === true ? true : false,
+        v.votedAt || ""
       ]);
     });
     return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
@@ -257,27 +276,58 @@ function doPost(e) {
   if (action === "clearVotes") {
     var votesSheet = sheet.getSheetByName("Votos");
     votesSheet.clear();
-    votesSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "Nombre Miembro", "Apellido Miembro"]);
+    votesSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "ID Votante", "Timestamp"]);
+    // También limpiar Has Voted en todos los miembros
+    var mSheet = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
+    if (mSheet) {
+      var mHeaders = mSheet.getRange(1, 1, 1, mSheet.getLastColumn()).getValues()[0];
+      var hvCol = mHeaders.indexOf("Has Voted") + 1;
+      if (hvCol > 0 && mSheet.getLastRow() > 1) {
+        var numRows = mSheet.getLastRow() - 1;
+        var hvRange = mSheet.getRange(2, hvCol, numRows, 1);
+        hvRange.setValue(false);
+        var fvCol = mHeaders.indexOf("Fecha Voto") + 1;
+        if (fvCol > 0) mSheet.getRange(2, fvCol, numRows, 1).setValue("");
+      }
+    }
     return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
   }
 
   if (action === "resetMultipleVotersVotes") {
     var votesSheet = sheet.getSheetByName("Votos");
-    var rows = votesSheet.getDataRange().getValues();
+    var mSheet = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
     var targetVoters = data.voters || [];
     
-    var targetSet = {};
+    // Construir set de IDs de votantes a resetear
+    var targetIds = {};
     targetVoters.forEach(function(v) {
-      var key = String(v.firstName).trim().toLowerCase() + "|" + String(v.lastName).trim().toLowerCase();
-      targetSet[key] = true;
+      if (v.voterId) targetIds[String(v.voterId).trim()] = true;
     });
 
-    for (var i = rows.length - 1; i >= 1; i--) {
-      var vFirst = String(rows[i][5]).trim().toLowerCase();
-      var vLast = String(rows[i][6]).trim().toLowerCase();
-      var key = vFirst + "|" + vLast;
-      if (targetSet[key]) {
+    // Eliminar votos de la hoja Votos por voterId (columna 6)
+    var vRows = votesSheet.getDataRange().getValues();
+    for (var i = vRows.length - 1; i >= 1; i--) {
+      var vid = String(vRows[i][5]).trim();
+      if (targetIds[vid]) {
         votesSheet.deleteRow(i + 1);
+      }
+    }
+
+    // Limpiar Has Voted en la hoja Miembros
+    if (mSheet) {
+      var mHeaders = mSheet.getRange(1, 1, 1, mSheet.getLastColumn()).getValues()[0];
+      var idCol = mHeaders.indexOf("ID") + 1;
+      var hvCol = mHeaders.indexOf("Has Voted") + 1;
+      var fvCol = mHeaders.indexOf("Fecha Voto") + 1;
+      if (hvCol > 0) {
+        var mRows = mSheet.getDataRange().getValues();
+        for (var j = 1; j < mRows.length; j++) {
+          var rowId = String(mRows[j][idCol - 1]).trim();
+          if (targetIds[rowId]) {
+            mSheet.getRange(j + 1, hvCol).setValue(false);
+            if (fvCol > 0) mSheet.getRange(j + 1, fvCol).setValue("");
+          }
+        }
       }
     }
     return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
@@ -291,9 +341,55 @@ function doPost(e) {
       data.candidateLastName,
       data.status,
       data.reason || "",
-      data.voterFirstName,
-      data.voterLastName
+      data.voterId || "",          // ID opaco del votante (VOTO SECRETO)
+      new Date().toISOString()    // Timestamp
     ]);
+    return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Marcar participación de un votante (VOTO SECRETO)
+  if (action === "markParticipation") {
+    var mSheet = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
+    if (!mSheet) return ContentService.createTextOutput(JSON.stringify({status: "error", msg: "Hoja Miembros no encontrada"})).setMimeType(ContentService.MimeType.JSON);
+    var mHeaders = mSheet.getRange(1, 1, 1, mSheet.getLastColumn()).getValues()[0];
+    var idCol = mHeaders.indexOf("ID") + 1;
+    var hvCol = mHeaders.indexOf("Has Voted") + 1;
+    var fvCol = mHeaders.indexOf("Fecha Voto") + 1;
+    if (hvCol === 0) {
+      mSheet.getRange(1, mHeaders.length + 1).setValue("Has Voted");
+      mSheet.getRange(1, mHeaders.length + 2).setValue("Fecha Voto");
+      hvCol = mHeaders.length + 1;
+      fvCol = mHeaders.length + 2;
+    }
+    var mRows = mSheet.getDataRange().getValues();
+    var targetId = String(data.voterId).trim();
+    for (var i = 1; i < mRows.length; i++) {
+      if (String(mRows[i][idCol - 1]).trim() === targetId) {
+        mSheet.getRange(i + 1, hvCol).setValue(true);
+        if (fvCol > 0) mSheet.getRange(i + 1, fvCol).setValue(new Date().toISOString());
+        return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({status: "error", msg: "Votante no encontrado"})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Limpiar participación de un votante (admin)
+  if (action === "resetParticipation") {
+    var mSheet = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
+    if (!mSheet) return ContentService.createTextOutput(JSON.stringify({status: "error", msg: "Hoja Miembros no encontrada"})).setMimeType(ContentService.MimeType.JSON);
+    var mHeaders = mSheet.getRange(1, 1, 1, mSheet.getLastColumn()).getValues()[0];
+    var idCol = mHeaders.indexOf("ID") + 1;
+    var hvCol = mHeaders.indexOf("Has Voted") + 1;
+    var fvCol = mHeaders.indexOf("Fecha Voto") + 1;
+    var mRows = mSheet.getDataRange().getValues();
+    var targetId = String(data.voterId).trim();
+    for (var i = 1; i < mRows.length; i++) {
+      if (String(mRows[i][idCol - 1]).trim() === targetId) {
+        if (hvCol > 0) mSheet.getRange(i + 1, hvCol).setValue(false);
+        if (fvCol > 0) mSheet.getRange(i + 1, fvCol).setValue("");
+        return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
     return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
   }
   
@@ -842,45 +938,23 @@ function getSheetData(sheet) {
     }
   };
 
-  // Obtener el progreso de votación de un miembro
+  // Obtener el progreso de votación de un miembro (VOTO SECRETO)
+  // Ahora usa el campo hasVoted del votante en lugar de contar votos por nombre
   const getVoterProgress = (voter) => {
-    const voterFirstNameNormalized = (voter.name || '').trim().toLowerCase();
-    const voterLastNameNormalized = (voter.lastName || '').trim().toLowerCase();
-
-    // Contar cuántos candidatos únicos ha votado este miembro
-    const votesForThisVoter = votes.filter(v => {
-      const vf = (v.voterFirstName || '').trim().toLowerCase();
-      const vl = (v.voterLastName || '').trim().toLowerCase();
-      if (vf && vl) {
-        return vf === voterFirstNameNormalized && vl === voterLastNameNormalized;
-      }
-      const voterFullName = `${voterFirstNameNormalized} ${voterLastNameNormalized}`.trim();
-      const vName = (v.voterName || v["Nombre del Miembro"] || v.Nombre_Miembro || v.Nombre_Votante || v["Nombre Votante"] || '').trim().toLowerCase();
-      return vName === voterFullName;
-    });
-
-    const uniqueCandsVoted = new Set(votesForThisVoter.map(v => 
-      String(v.candidateId || v.ID_Candidato || v["ID Candidato"] || '').trim()
-    ));
-
-    const pendingCandidates = candidates.filter(cand => {
-      const candIdStr = String(cand.id).trim();
-      return !uniqueCandsVoted.has(candIdStr);
-    });
-
+    const participated = voter?.hasVoted === true;
     return {
-      votedCount: uniqueCandsVoted.size,
+      votedCount: participated ? candidates.length : 0,
       totalCount: candidates.length,
-      hasVoted: uniqueCandsVoted.size > 0,
-      isComplete: uniqueCandsVoted.size >= candidates.length && candidates.length > 0,
-      pendingCandidates
+      hasVoted: participated,
+      isComplete: participated,
+      pendingCandidates: participated ? [] : [...candidates]
     };
   };
 
-  // Restaurar los votos de un votante para permitirle volver a votar
+  // Restaurar los votos de un votante para permitirle volver a votar (VOTO SECRETO)
   const handleResetVoterVotes = async (voter) => {
     const fullName = `${voter.name} ${voter.lastName}`;
-    if (!window.confirm(`¿Estás seguro de que deseas restablecer los votos de ${fullName}? Esto eliminará permanentemente sus votos y le permitirá volver a votar.`)) {
+    if (!window.confirm(`¿Estás seguro de que deseas restablecer los votos de ${fullName}? Esto le permitirá volver a votar.`)) {
       return;
     }
 
@@ -890,30 +964,22 @@ function getSheetData(sheet) {
         if (!isConnected) {
           throw new Error("No hay conexión con Google Sheets. No se pueden restablecer los votos.");
         }
-        await resetVoterVotesInSheets(config.sheetUrlCandidates, {
-          voterFirstName: voter.name,
-          voterLastName: voter.lastName
-        });
-        showToast(`Votos de ${fullName} restablecidos en Google Sheets`, "success");
+        await resetVoterVotesInSheets(config.sheetUrlCandidates, { voterId: voter.id });
+        showToast(`Participación de ${fullName} restablecida en Google Sheets`, "success");
         refreshData();
       } else {
-        const voterFirstNameNormalized = (voter.name || '').trim().toLowerCase();
-        const voterLastNameNormalized = (voter.lastName || '').trim().toLowerCase();
-        
-        const updatedVotes = votes.filter(v => {
-          const vf = (v.voterFirstName || '').trim().toLowerCase();
-          const vl = (v.voterLastName || '').trim().toLowerCase();
-          if (vf && vl) {
-            return !(vf === voterFirstNameNormalized && vl === voterLastNameNormalized);
-          }
-          const voterFullName = `${voterFirstNameNormalized} ${voterLastNameNormalized}`.trim();
-          const vName = (v.voterName || '').trim().toLowerCase();
-          return vName !== voterFullName;
-        });
-
+        // Limpiar votos locales por voterId
+        const updatedVotes = votes.filter(v => String(v.voterId || '').trim() !== String(voter.id).trim());
         setVotes(updatedVotes);
         safeSetLocalStorage('icc_local_votes', JSON.stringify(updatedVotes));
-        showToast(`Votos de ${fullName} restablecidos localmente`, "success");
+        // Limpiar hasVoted local
+        const localVoters = localStorage.getItem('icc_local_voters');
+        if (localVoters) {
+          const parsed = JSON.parse(localVoters);
+          const updated = parsed.map(v => v.id === voter.id ? { ...v, hasVoted: false, votedAt: '' } : v);
+          localStorage.setItem('icc_local_voters', JSON.stringify(updated));
+        }
+        showToast(`Participación de ${fullName} restablecida localmente`, "success");
       }
     } catch (error) {
       console.error(error);
@@ -963,12 +1029,12 @@ function getSheetData(sheet) {
     }
   };
 
-  // Restablecer votos de múltiples votantes en lote
+  // Restablecer votos de múltiples votantes en lote (VOTO SECRETO)
   const handleBulkResetVotes = async () => {
     const selectedVoters = voters.filter(v => selectedVoterIds.includes(v.id));
     if (selectedVoters.length === 0) return;
 
-    if (!window.confirm(`¿Estás seguro de que deseas restablecer los votos de los ${selectedVoters.length} votantes seleccionados? Esto eliminará permanentemente todos sus votos.`)) {
+    if (!window.confirm(`¿Estás seguro de que deseas restablecer la participación de los ${selectedVoters.length} votantes seleccionados?`)) {
       return;
     }
 
@@ -978,30 +1044,26 @@ function getSheetData(sheet) {
         if (!isConnected) {
           throw new Error("No hay conexión con Google Sheets. No se pueden restablecer los votos.");
         }
-        const payloadList = selectedVoters.map(v => ({
-          firstName: v.name,
-          lastName: v.lastName
-        }));
+        const payloadList = selectedVoters.map(v => ({ voterId: v.id }));
         await resetMultipleVotersVotesInSheets(config.sheetUrlCandidates, payloadList);
-        showToast(`Votos de ${selectedVoters.length} miembros restablecidos en Google Sheets`, "success");
+        showToast(`Participación de ${selectedVoters.length} miembros restablecida en Google Sheets`, "success");
         refreshData();
       } else {
-        const targetKeys = new Set(selectedVoters.map(v => 
-          `${(v.name || '').trim().toLowerCase()}|${(v.lastName || '').trim().toLowerCase()}`
-        ));
-
-        const updatedVotes = votes.filter(v => {
-          const vf = (v.voterFirstName || '').trim().toLowerCase();
-          const vl = (v.voterLastName || '').trim().toLowerCase();
-          const key = `${vf}|${vl}`;
-          return !targetKeys.has(key);
-        });
-
+        const targetIds = new Set(selectedVoters.map(v => String(v.id).trim()));
+        // Limpiar votos locales por voterId
+        const updatedVotes = votes.filter(v => !targetIds.has(String(v.voterId || '').trim()));
         setVotes(updatedVotes);
         safeSetLocalStorage('icc_local_votes', JSON.stringify(updatedVotes));
-        showToast(`Votos de ${selectedVoters.length} miembros restablecidos localmente`, "success");
+        // Limpiar hasVoted local
+        const localVoters = localStorage.getItem('icc_local_voters');
+        if (localVoters) {
+          const parsed = JSON.parse(localVoters);
+          const updated = parsed.map(v => targetIds.has(String(v.id).trim()) ? { ...v, hasVoted: false, votedAt: '' } : v);
+          localStorage.setItem('icc_local_voters', JSON.stringify(updated));
+        }
+        showToast(`Participación de ${selectedVoters.length} miembros restablecida localmente`, "success");
       }
-      setSelectedVoterIds([]); // Limpiar selección
+      setSelectedVoterIds([]);
     } catch (error) {
       console.error(error);
       showToast(`Error al restablecer votos: ${error.message}`, "error");
@@ -1225,24 +1287,30 @@ function getSheetData(sheet) {
     showToast("Enlace de votación copiado", "success");
   };
 
-  // Filtrar Votantes en lista considerando búsqueda y estado de progreso
+  // Filtrar Votantes en lista considerando búsqueda y estado de participación (VOTO SECRETO)
   const filteredVoters = voters.filter(v => {
     const fullName = `${v.name || ''} ${v.lastName || ''}`.trim().toLowerCase();
     const matchesSearch = fullName.includes(voterSearch.toLowerCase());
     if (!matchesSearch) return false;
 
-    const progress = getVoterProgress(v);
-    if (voterStatusFilter === 'completed') return progress.isComplete;
-    if (voterStatusFilter === 'pending') return !progress.hasVoted;
-    if (voterStatusFilter === 'partial') return progress.hasVoted && !progress.isComplete;
+    // Con voto secreto: hasVoted = true/false (binario, no parcial)
+    if (voterStatusFilter === 'completed') return v.hasVoted === true;
+    if (voterStatusFilter === 'pending') return !v.hasVoted;
+    if (voterStatusFilter === 'partial') return false; // Ya no existe estado parcial
     return true; // 'all'
   });
 
-  // Desglose de votos para la tabla completa
+  // Desglose de votos para la tabla completa (VOTO SECRETO: sin nombre del votante)
   const allVotesParsed = votes.map(v => {
     const candId = v.candidateId || v.ID_Candidato || v["ID Candidato"];
-    const candNameVal = v.candidateName || v.Nombre_Candidato || v["Nombre Candidato"] || candidates.find(c => c.id === candId)?.name || "Candidato Desconocido";
-    const voter = v.voterName || v["Nombre Votante"] || v.Nombre_Votante || "Votante Anónimo";
+    const cand = candidates.find(c => {
+      const cId = String(c.id).trim();
+      const vId = String(candId || '').trim();
+      return cId === vId || (parseInt(cId, 10) === parseInt(vId, 10));
+    });
+    const candNameVal = v.candidateName ||
+      (cand ? `${cand.firstName || ''} ${cand.lastName || ''}`.trim() : '') ||
+      v.Nombre_Candidato || v["Nombre Candidato"] || "Candidato Desconocido";
     const statusVal = v.status || v.Estado || v.estado;
     const isApp = statusVal?.toLowerCase() === 'approve' || statusVal?.toLowerCase() === 'aprueba' || statusVal?.toLowerCase() === 'aprobar' || statusVal === 'Aprueba';
     const reason = v.reason || v.Motivo || v.motivo || '';
@@ -1251,7 +1319,7 @@ function getSheetData(sheet) {
     return {
       candId,
       candidateName: candNameVal,
-      voter,
+      // voterId opaco — no se muestra en UI (voto secreto)
       status: isApp ? 'Aprueba' : 'No Aprueba',
       reason,
       date
@@ -1335,8 +1403,13 @@ function getSheetData(sheet) {
               <div className="stat-val">{votes.length}</div>
             </div>
             <div className="card stat-card">
-              <div className="stat-label">Votantes Habilitados</div>
-              <div className="stat-val">{voters.length}</div>
+              <div className="stat-label">Han Participado</div>
+              <div className="stat-val">
+                {voters.filter(v => v.hasVoted).length}
+                <span style={{ fontSize: '14px', fontWeight: 400, color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                  / {voters.length}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -1457,7 +1530,6 @@ function getSheetData(sheet) {
                 <thead>
                   <tr>
                     <th>Candidato</th>
-                    <th>Votante</th>
                     <th>Veredicto</th>
                     <th>Motivo de Objeción (Si aplica)</th>
                     <th>Fecha</th>
@@ -1467,7 +1539,6 @@ function getSheetData(sheet) {
                   {displayVotes.map((vote, index) => (
                     <tr key={index}>
                       <td style={{ fontWeight: 600 }}>{vote.candidateName}</td>
-                      <td>{vote.voter}</td>
                       <td>
                         <span className={`badge ${vote.status === 'Aprueba' ? 'badge-success' : 'badge-danger'}`}>
                           {vote.status}
