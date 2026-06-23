@@ -27,6 +27,7 @@ export default function VoterPanel({
   const [disapproveReason, setDisapproveReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasFinished, setHasFinished] = useState(false);
+  const [votedCandidateIds, setVotedCandidateIds] = useState([]);
 
   // Filtrar sugerencias de votantes basados en la búsqueda
   useEffect(() => {
@@ -48,18 +49,79 @@ export default function VoterPanel({
   }, [voterSearchText, voters]);
 
   // Verificar si un votante ya ha participado en la votación (VOTO SECRETO)
-  // Usa el campo hasVoted del votante en lugar de buscar votos por nombre
-  const hasVotedFor = (voter, _candidateId) => {
-    // Si el votante ya fue marcado como participante, se le considera como que ya votó
-    return voter?.hasVoted === true;
+  const hasVotedFor = (voter, candidateId) => {
+    if (!voter) return false;
+    const pastVotedIds = votes
+      .filter(v => String(v.voterId).trim() === String(voter.id).trim())
+      .map(v => String(v.candidateId).trim());
+    const sessionVotedIds = votedCandidateIds.map(id => String(id).trim());
+    return pastVotedIds.includes(String(candidateId).trim()) || sessionVotedIds.includes(String(candidateId).trim());
+  };
+
+  // Obtener etiqueta de estado del votante para mostrar en las sugerencias (sin revelar su decisión)
+  const getVoterStatusLabel = (voter) => {
+    if (!voter) return { text: "Pendiente", style: {} };
+    
+    const pastVotedIds = votes
+      .filter(v => String(v.voterId).trim() === String(voter.id).trim())
+      .map(v => String(v.candidateId).trim());
+    
+    // Si completó todos los candidatos
+    if (voter.hasVoted && pastVotedIds.length >= candidates.length) {
+      return { 
+        text: "Ya Votó", 
+        style: { backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)' } 
+      };
+    }
+    
+    // Si tiene votos parciales
+    if (pastVotedIds.length > 0 && pastVotedIds.length < candidates.length) {
+      return { 
+        text: `Parcial (${pastVotedIds.length}/${candidates.length})`, 
+        style: { backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' } 
+      };
+    }
+    
+    // Caso de marca de participación sin votos individuales
+    if (voter.hasVoted && pastVotedIds.length === 0) {
+      return { 
+        text: "Ya Votó", 
+        style: { backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)' } 
+      };
+    }
+    
+    // Si no ha votado por ninguno
+    return { 
+      text: "Pendiente", 
+      style: { backgroundColor: 'rgba(107, 114, 128, 0.1)', color: '#6b7280', border: '1px solid rgba(107, 114, 128, 0.2)' } 
+    };
   };
 
   // Obtener la lista de candidatos pendientes para el votante seleccionado
   const getPendingCandidates = () => {
     if (!selectedVoter) return [];
-    // Si ya participó, no hay candidatos pendientes
-    if (selectedVoter.hasVoted) return [];
-    return candidates;
+    
+    // Obtener los votos ya registrados de este votante en la base de datos
+    const pastVotedIds = votes
+      .filter(v => String(v.voterId).trim() === String(selectedVoter.id).trim())
+      .map(v => String(v.candidateId).trim());
+      
+    // Si ya participó y tiene todos sus votos registrados en Sheets/Local, o no le quedan candidatos por votar
+    if (selectedVoter.hasVoted && pastVotedIds.length >= candidates.length) {
+      return [];
+    }
+    
+    // Si ya participó (hasVoted es true) pero no tiene ningún voto registrado en la hoja de votos,
+    // por seguridad lo bloqueamos para evitar que vote de nuevo desde cero si ya participó.
+    if (selectedVoter.hasVoted && pastVotedIds.length === 0) {
+      return [];
+    }
+    
+    // Combinar los votos registrados previamente en el servidor/local con los de la sesión en memoria
+    const sessionVotedIds = votedCandidateIds.map(id => String(id).trim());
+    const allVotedIds = [...new Set([...pastVotedIds, ...sessionVotedIds])];
+    
+    return candidates.filter(cand => !allVotedIds.includes(String(cand.id).trim()));
   };
 
   const pendingCandidates = getPendingCandidates();
@@ -74,6 +136,7 @@ export default function VoterPanel({
     setVoteStatus(null);
     setDisapproveReason('');
     setHasFinished(false);
+    setVotedCandidateIds([]); // Limpiar la lista de votos de la sesión actual
     showToast(`Sesión iniciada como: ${fullName}`, "info");
 
     // Sincronizar inmediatamente al iniciar sesión de voto
@@ -143,7 +206,10 @@ export default function VoterPanel({
     };
 
     // ¿Es el primer voto de esta sesión? (para marcar participación después del primer voto)
-    const isFirstVote = pendingCandidates.length === candidates.length;
+    const pastVotedIds = votes
+      .filter(v => String(v.voterId).trim() === String(selectedVoter.id).trim())
+      .map(v => String(v.candidateId).trim());
+    const isFirstVote = pastVotedIds.length === 0 && votedCandidateIds.length === 0;
 
     try {
       if (config.sheetUrlCandidates) {
@@ -165,6 +231,10 @@ export default function VoterPanel({
         }
 
         showToast("Voto registrado", "success");
+        
+        // Registrar en la lista de candidatos votados de la sesión
+        setVotedCandidateIds(prev => [...prev, currentCandidate.id]);
+
         // Sincronizar datos globales esperando a que termine
         await refreshData();
       } else {
@@ -192,10 +262,13 @@ export default function VoterPanel({
             v.id === selectedVoter.id ? { ...v, hasVoted: true, votedAt: new Date().toISOString() } : v
           );
           localStorage.setItem('icc_local_voters', JSON.stringify(updatedVoters));
-          setSelectedVoter(prev => ({ ...prev, hasVoted: true }));
+          // OJO: No alteramos el estado local selectedVoter.hasVoted inmediatamente para que no rompa el flujo de candidatos pendientes de esta sesión.
         }
 
         showToast("Voto registrado localmente", "success");
+        
+        // Registrar en la lista de candidatos votados de la sesión
+        setVotedCandidateIds(prev => [...prev, currentCandidate.id]);
       }
 
       // Reiniciar estado del voto
@@ -223,6 +296,7 @@ export default function VoterPanel({
     setVoteStatus(null);
     setDisapproveReason('');
     setHasFinished(false);
+    setVotedCandidateIds([]); // Limpiar la lista de votos de la sesión al finalizar
   };
 
   // Soporte de navegación por teclado en el buscador
@@ -276,15 +350,30 @@ export default function VoterPanel({
 
             {isFocused && suggestions.length > 0 && (
               <div className="voters-suggestions-list" ref={suggestionsRef}>
-                {suggestions.map((v, index) => (
-                  <div 
-                    key={v.id || index} 
-                    className={`voter-suggestion-item ${index === highlightedIndex ? 'highlighted' : ''}`}
-                    onMouseDown={() => handleSelectVoter(v)}
-                  >
-                    {v.name} {v.lastName}
-                  </div>
-                ))}
+                {suggestions.map((v, index) => {
+                  const statusInfo = getVoterStatusLabel(v);
+                  return (
+                    <div 
+                      key={v.id || index} 
+                      className={`voter-suggestion-item ${index === highlightedIndex ? 'highlighted' : ''}`}
+                      onMouseDown={() => handleSelectVoter(v)}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }}
+                    >
+                      <span style={{ fontWeight: '500' }}>{v.name} {v.lastName}</span>
+                      <span style={{ 
+                        fontSize: '11px', 
+                        fontWeight: '700', 
+                        padding: '3px 8px', 
+                        borderRadius: '12px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        ...statusInfo.style 
+                      }}>
+                        {statusInfo.text}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -302,7 +391,7 @@ export default function VoterPanel({
       )}
 
       {/* PASO 2: VOTACIÓN ACTIVA */}
-      {selectedVoter && !hasFinished && pendingCandidates.length > 0 && (
+      {selectedVoter && !hasFinished && pendingCandidates.length > 0 && !isSubmitting && !isLoading && (
         <div className="card voter-card" style={{ padding: '24px' }}>
           
           {/* Cabecera Wizard */}
@@ -390,6 +479,23 @@ export default function VoterPanel({
               </button>
             </Tooltip>
           </div>
+        </div>
+      )}
+
+      {/* TRANSICIÓN DE VOTACIÓN / PROCESANDO VOTO */}
+      {selectedVoter && !hasFinished && pendingCandidates.length > 0 && (isSubmitting || isLoading) && (
+        <div className="card voter-card" style={{ padding: '48px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
+          <div className="spinner" style={{ display: 'inline-block', width: '50px', height: '50px', border: '4px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '20px' }}></div>
+          <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: '8px' }}>Procesando tu decisión</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '320px', margin: '0 auto' }}>
+            Registrando tu voto de forma confidencial y preparando el siguiente candidato...
+          </p>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
         </div>
       )}
 

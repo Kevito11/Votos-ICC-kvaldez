@@ -10,6 +10,8 @@ import { useState, useRef, useEffect } from 'react';
  */
 export default function Tooltip({ text, children, position = 'top', style }) {
   const [isVisible, setIsVisible] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const containerRef = useRef(null);
   const hoverTimeout = useRef(null);
   const touchTimeout = useRef(null);
   const isLongPress = useRef(false);
@@ -18,6 +20,27 @@ export default function Tooltip({ text, children, position = 'top', style }) {
   if (!text) return children;
 
   const showTooltip = () => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      let top = 0;
+      let left = 0;
+      
+      if (position === 'top') {
+        top = rect.top;
+        left = rect.left + rect.width / 2;
+      } else if (position === 'bottom') {
+        top = rect.bottom;
+        left = rect.left + rect.width / 2;
+      } else if (position === 'left') {
+        top = rect.top + rect.height / 2;
+        left = rect.left;
+      } else if (position === 'right') {
+        top = rect.top + rect.height / 2;
+        left = rect.right;
+      }
+      
+      setCoords({ top, left });
+    }
     setIsVisible(true);
   };
 
@@ -68,6 +91,25 @@ export default function Tooltip({ text, children, position = 'top', style }) {
     hideTooltip();
   };
 
+  // Ocultar el tooltip al hacer scroll en cualquier parte para evitar desprendimiento
+  useEffect(() => {
+    if (!isVisible) return;
+    
+    const handleScroll = () => {
+      hideTooltip();
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('wheel', handleScroll, { passive: true });
+    window.addEventListener('touchmove', handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('wheel', handleScroll);
+      window.removeEventListener('touchmove', handleScroll);
+    };
+  }, [isVisible]);
+
   // Limpiar temporizadores cuando el componente se desmonte
   useEffect(() => {
     return () => {
@@ -78,6 +120,7 @@ export default function Tooltip({ text, children, position = 'top', style }) {
 
   return (
     <div 
+      ref={containerRef}
       className="tooltip-container"
       style={style}
       onMouseEnter={handleMouseEnter}
@@ -89,7 +132,21 @@ export default function Tooltip({ text, children, position = 'top', style }) {
     >
       {children}
       {isVisible && (
-        <div className={`tooltip-bubble tooltip-${position}`}>
+        <div 
+          className={`tooltip-bubble tooltip-${position}`}
+          style={{
+            position: 'fixed',
+            top: `${coords.top}px`,
+            left: `${coords.left}px`,
+            bottom: 'auto',
+            right: 'auto',
+            transform: 
+              position === 'top' ? 'translate(-50%, -100%) translate(0, -8px)' :
+              position === 'bottom' ? 'translate(-50%, 8px)' :
+              position === 'left' ? 'translate(-100%, -50%) translate(-8px, 0)' :
+              'translate(8px, -50%)'
+          }}
+        >
           {text}
           <div className="tooltip-arrow"></div>
         </div>

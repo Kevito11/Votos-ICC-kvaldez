@@ -939,15 +939,38 @@ function getSheetData(sheet) {
   };
 
   // Obtener el progreso de votación de un miembro (VOTO SECRETO)
-  // Ahora usa el campo hasVoted del votante en lugar de contar votos por nombre
   const getVoterProgress = (voter) => {
-    const participated = voter?.hasVoted === true;
+    if (!voter) {
+      return {
+        votedCount: 0,
+        totalCount: candidates.length,
+        hasVoted: false,
+        isComplete: false,
+        pendingCandidates: [...candidates]
+      };
+    }
+
+    // Filtrar los votos que coinciden con el voterId del miembro
+    const voterVotes = votes.filter(v => String(v.voterId || '').trim() === String(voter.id).trim());
+    const votedCount = voterVotes.length;
+    const totalCount = candidates.length;
+    
+    // Obtener los IDs de candidatos por los que ya votó
+    const votedCandIds = new Set(voterVotes.map(v => String(v.candidateId).trim()));
+    const pendingCandidates = candidates.filter(c => !votedCandIds.has(String(c.id).trim()));
+
+    // Consideramos que ya votó por completo si los votos coinciden con el total de candidatos
+    const isComplete = votedCount >= totalCount && totalCount > 0;
+    
+    // Consideramos que ha participado si su hasVoted es true o si ya tiene al menos un voto registrado
+    const participated = voter.hasVoted === true || votedCount > 0;
+
     return {
-      votedCount: participated ? candidates.length : 0,
-      totalCount: candidates.length,
+      votedCount,
+      totalCount,
       hasVoted: participated,
-      isComplete: participated,
-      pendingCandidates: participated ? [] : [...candidates]
+      isComplete,
+      pendingCandidates
     };
   };
 
@@ -1293,10 +1316,11 @@ function getSheetData(sheet) {
     const matchesSearch = fullName.includes(voterSearch.toLowerCase());
     if (!matchesSearch) return false;
 
-    // Con voto secreto: hasVoted = true/false (binario, no parcial)
-    if (voterStatusFilter === 'completed') return v.hasVoted === true;
-    if (voterStatusFilter === 'pending') return !v.hasVoted;
-    if (voterStatusFilter === 'partial') return false; // Ya no existe estado parcial
+    const progress = getVoterProgress(v);
+
+    if (voterStatusFilter === 'completed') return progress.isComplete;
+    if (voterStatusFilter === 'pending') return !progress.hasVoted;
+    if (voterStatusFilter === 'partial') return progress.hasVoted && !progress.isComplete;
     return true; // 'all'
   });
 
