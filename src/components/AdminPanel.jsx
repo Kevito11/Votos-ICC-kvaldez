@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import ExcelJS from 'exceljs/dist/exceljs.min.js';
 import { 
   addCandidateToSheets, 
   deleteCandidateFromSheets, 
@@ -54,6 +55,12 @@ export default function AdminPanel({
 
   // Filtro de resultados
   const [resultsFilter, setResultsFilter] = useState('all');
+  const [votesPerPage, setVotesPerPage] = useState(10);
+  const [votesCurrentPage, setVotesCurrentPage] = useState(1);
+
+  // Secciones colapsables en Resultados
+  const [showCandidateResults, setShowCandidateResults] = useState(true);
+  const [showVotesList, setShowVotesList] = useState(false);
 
   // Código de Google Apps Script único y consolidado para copiar
   const appsScriptCodeConsolidated = `// Código único y consolidado para Google Sheets: Miembros, Candidatos y Votos
@@ -950,13 +957,17 @@ function getSheetData(sheet) {
       };
     }
 
-    // Filtrar los votos que coinciden con el voterId del miembro
-    const voterVotes = votes.filter(v => String(v.voterId || '').trim() === String(voter.id).trim());
+    // Filtrar los votos que coinciden con el voterId del miembro (soportando llaves locales y de Google Sheets)
+    const voterVotes = votes.filter(v => {
+      const vId = String(v.voterId || v.ID_Votante || v["ID Votante"] || '').trim();
+      const voterId = String(voter.id).trim();
+      return vId === voterId;
+    });
     const votedCount = voterVotes.length;
     const totalCount = candidates.length;
     
-    // Obtener los IDs de candidatos por los que ya votó
-    const votedCandIds = new Set(voterVotes.map(v => String(v.candidateId).trim()));
+    // Obtener los IDs de candidatos por los que ya votó (soportando llaves locales y de Google Sheets)
+    const votedCandIds = new Set(voterVotes.map(v => String(v.candidateId || v.ID_Candidato || v["ID Candidato"] || '').trim()));
     const pendingCandidates = candidates.filter(c => !votedCandIds.has(String(c.id).trim()));
 
     // Consideramos que ya votó por completo si los votos coinciden con el total de candidatos
@@ -1178,6 +1189,382 @@ function getSheetData(sheet) {
     };
   };
 
+  // Exportar reporte completo a Excel
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Votaciones ICC Admin';
+      workbook.lastModifiedBy = 'Votaciones ICC Admin';
+      workbook.created = new Date();
+      workbook.modified = new Date();
+
+      // ----------------------------------------------------
+      // HOJA 1: Dashboard y Resultados
+      // ----------------------------------------------------
+      const wsDashboard = workbook.addWorksheet('Dashboard');
+      wsDashboard.views = [{ showGridLines: true }];
+
+      // Configurar anchos de columna para Dashboard (Columnas A a H)
+      wsDashboard.columns = [
+        { key: 'spacing', width: 4 }, // Columna A
+        { key: 'name', width: 28 },    // Columna B
+        { key: 'total', width: 14 },   // Columna C
+        { key: 'app_cnt', width: 14 }, // Columna D
+        { key: 'app_pct', width: 14 }, // Columna E
+        { key: 'dis_cnt', width: 14 }, // Columna F
+        { key: 'dis_pct', width: 14 }, // Columna G
+        { key: 'rate', width: 18 },    // Columna H
+      ];
+
+      // Banner del Título Principal
+      wsDashboard.mergeCells('B2:H2');
+      for (let col = 2; col <= 8; col++) {
+        const cell = wsDashboard.getCell(2, col);
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF0F172A' } // Slate 900
+        };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FF0F172A' } },
+          bottom: { style: 'thin', color: { argb: 'FF0F172A' } },
+          right: { style: 'thin', color: { argb: 'FF0F172A' } }
+        };
+      }
+      const titleCell = wsDashboard.getCell('B2');
+      titleCell.value = 'DASHBOARD DE RESULTADOS - VOTACIONES ICC';
+      titleCell.font = { name: 'Segoe UI', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsDashboard.getRow(2).height = 40;
+
+      // Fecha de Reporte
+      wsDashboard.mergeCells('B3:H3');
+      const dateCell = wsDashboard.getCell('B3');
+      dateCell.value = `Generado el: ${new Date().toLocaleString('es-ES')}`;
+      dateCell.font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF64748B' } };
+      wsDashboard.getRow(3).height = 20;
+
+      // Calcular participación y pendientes usando compatibilidad de IDs
+      const participatedCount = voters.filter(v => {
+        const voterVotes = votes.filter(vote => {
+          const vId = String(vote.voterId || vote.ID_Votante || vote["ID Votante"] || '').trim();
+          const voterId = String(v.id).trim();
+          return vId === voterId;
+        });
+        return v.hasVoted === true || voterVotes.length > 0;
+      }).length;
+      
+      const pendingCount = voters.length - participatedCount;
+      const participationPct = voters.length > 0 ? (participatedCount / voters.length) * 100 : 0;
+      const pendingPct = voters.length > 0 ? (pendingCount / voters.length) * 100 : 0;
+
+      // Cards de Estadísticas Globales alineadas a la tabla (Columnas B a H)
+      styleAndMergeCard(wsDashboard, 'B5:B6', 'Candidatos Activos', `${candidates.length}`);
+      styleAndMergeCard(wsDashboard, 'C5:D6', 'Votos Registrados', `${votes.length}`);
+      styleAndMergeCard(wsDashboard, 'E5:F6', 'Han Participado', `${Math.round(participationPct)}% (${participatedCount}/${voters.length})`);
+      styleAndMergeCard(wsDashboard, 'G5:H6', 'Pendientes de Votar', `${Math.round(pendingPct)}% (${pendingCount}/${voters.length})`);
+
+      wsDashboard.getRow(5).height = 24;
+      wsDashboard.getRow(6).height = 24;
+
+      // Título de la Tabla de Candidatos
+      wsDashboard.getCell('B8').value = 'Resumen por Candidato';
+      wsDashboard.getCell('B8').font = { name: 'Segoe UI', size: 12, bold: true, color: { argb: 'FF334155' } };
+      wsDashboard.getRow(8).height = 24;
+
+      // Tabla de Cabeceras
+      const headerRow = wsDashboard.getRow(9);
+      headerRow.height = 30;
+      const headers = [
+        { col: 'B', val: 'Candidato' },
+        { col: 'C', val: 'Votos Totales' },
+        { col: 'D', val: 'Aprueba (Cant)' },
+        { col: 'E', val: 'Aprueba (%)' },
+        { col: 'F', val: 'No Aprueba (Cant)' },
+        { col: 'G', val: 'No Aprueba (%)' },
+        { col: 'H', val: 'Tasa Aprobación' }
+      ];
+
+      headers.forEach(h => {
+        const cell = wsDashboard.getCell(`${h.col}9`);
+        cell.value = h.val;
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1E293B' } // Slate 800
+        };
+        cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF94A3B8' } },
+          left: { style: 'thin', color: { argb: 'FF94A3B8' } },
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+          right: { style: 'thin', color: { argb: 'FF94A3B8' } }
+        };
+      });
+
+      // Llenar tabla
+      let currentRow = 10;
+      candidates.forEach((cand, idx) => {
+        const stats = getCandidateStats(cand.id);
+        const row = wsDashboard.getRow(currentRow);
+        row.height = 24;
+
+        const isEven = idx % 2 === 1;
+        const rowFillColor = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+        const cellsData = [
+          { col: 'B', val: `${cand.firstName || ''} ${cand.lastName || ''}`.trim(), align: 'left', fontBold: true, numFmt: null },
+          { col: 'C', val: stats.total, align: 'right', fontBold: false, numFmt: '#,##0' },
+          { col: 'D', val: stats.approves, align: 'right', fontBold: false, numFmt: '#,##0' },
+          { col: 'E', val: stats.total > 0 ? stats.approves / stats.total : 0, align: 'right', fontBold: false, numFmt: '0.0%' },
+          { col: 'F', val: stats.disapproves, align: 'right', fontBold: false, numFmt: '#,##0' },
+          { col: 'G', val: stats.total > 0 ? stats.disapproves / stats.total : 0, align: 'right', fontBold: false, numFmt: '0.0%' },
+          { col: 'H', val: stats.total > 0 ? stats.approvalRate / 100 : 0, align: 'center', fontBold: true, numFmt: '0%' }
+        ];
+
+        cellsData.forEach(c => {
+          const cell = wsDashboard.getCell(`${c.col}${currentRow}`);
+          cell.value = c.val;
+
+          let cellFillColor = rowFillColor;
+          let cellFontColor = 'FF334155';
+
+          // Formateo de Status Pill para la tasa de aprobación
+          if (c.col === 'H') {
+            cellFillColor = stats.approvalRate >= 75 ? 'FFE6F4EA' : 'FFFCE8E6'; // Soft Green o Soft Red
+            cellFontColor = stats.approvalRate >= 75 ? 'FF137333' : 'FFC5221F'; // Dark Green o Dark Red
+          }
+
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: cellFillColor }
+          };
+
+          cell.font = { name: 'Segoe UI', size: 10, bold: c.fontBold, color: { argb: cellFontColor } };
+          cell.alignment = { vertical: 'middle', horizontal: c.align };
+          
+          if (c.numFmt) {
+            cell.numFmt = c.numFmt;
+          }
+
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+        });
+
+        currentRow++;
+      });
+
+      // Agregar Gráfica
+      const chartBase64 = generateChartImage(candidates, getCandidateStats);
+      const cleanBase64 = chartBase64.replace(/^data:image\/png;base64,/, '');
+
+      const chartImageId = workbook.addImage({
+        base64: cleanBase64,
+        extension: 'png',
+      });
+
+      wsDashboard.addImage(chartImageId, {
+        tl: { col: 1, row: currentRow + 2 },
+        ext: { width: 620, height: 330 }
+      });
+
+      // ----------------------------------------------------
+      // HOJA 2: Detalle de Votos
+      // ----------------------------------------------------
+      const wsVotes = workbook.addWorksheet('Detalle de Votos');
+      wsVotes.views = [{ showGridLines: true }];
+
+      wsVotes.columns = [
+        { key: 'spacing', width: 4 }, // Columna A
+        { key: 'candidate', width: 28 }, // Columna B
+        { key: 'verdict', width: 16 },   // Columna C
+        { key: 'comment', width: 55 },   // Columna D
+        { key: 'date', width: 22 }       // Columna E
+      ];
+
+      // Banner del Título Principal Hoja 2
+      wsVotes.mergeCells('B2:E2');
+      for (let col = 2; col <= 5; col++) {
+        const cell = wsVotes.getCell(2, col);
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1E3A8A' } // Blue 900
+        };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF1E3A8A' } },
+          left: { style: 'thin', color: { argb: 'FF1E3A8A' } },
+          bottom: { style: 'thin', color: { argb: 'FF1E3A8A' } },
+          right: { style: 'thin', color: { argb: 'FF1E3A8A' } }
+        };
+      }
+      const titleCell2 = wsVotes.getCell('B2');
+      titleCell2.value = 'DETALLE DE VOTOS REGISTRADOS';
+      titleCell2.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell2.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      wsVotes.getRow(2).height = 36;
+
+      // Subtítulo
+      wsVotes.mergeCells('B3:E3');
+      const subtitleCell2 = wsVotes.getCell('B3');
+      subtitleCell2.value = 'Organizado por Candidato: Primero objeciones ("No Aprueba") y luego aprobaciones ("Aprueba")';
+      subtitleCell2.font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF64748B' } };
+      wsVotes.getRow(3).height = 20;
+
+      // Cabeceras Tabla
+      const headerRow2 = wsVotes.getRow(5);
+      headerRow2.height = 28;
+      const headers2 = [
+        { col: 'B', val: 'Candidato' },
+        { col: 'C', val: 'Veredicto' },
+        { col: 'D', val: 'Motivo de Objeción (Si aplica)' },
+        { col: 'E', val: 'Fecha del Voto' }
+      ];
+
+      headers2.forEach(h => {
+        const cell = wsVotes.getCell(`${h.col}5`);
+        cell.value = h.val;
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF2B6CB0' } // Corporate Blue
+        };
+        cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.alignment = { vertical: 'middle', horizontal: h.col === 'D' ? 'left' : 'center' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'medium', color: { argb: 'FF1A365D' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+      });
+
+      // Procesar votos
+      const parsedVotes = votes.map(v => {
+        const candId = v.candidateId || v.ID_Candidato || v["ID Candidato"];
+        const cand = candidates.find(c => {
+          const cId = String(c.id).trim();
+          const vId = String(candId || '').trim();
+          return cId === vId || (parseInt(cId, 10) === parseInt(vId, 10));
+        });
+        const candNameVal = v.candidateName ||
+          (cand ? `${cand.firstName || ''} ${cand.lastName || ''}`.trim() : '') ||
+          v.Nombre_Candidato || v["Nombre Candidato"] || "Candidato Desconocido";
+        const statusVal = v.status || v.Estado || v.estado;
+        const isApp = statusVal?.toLowerCase() === 'approve' || statusVal?.toLowerCase() === 'aprueba' || statusVal?.toLowerCase() === 'aprobar' || statusVal === 'Aprueba';
+        const reason = v.reason || v.Motivo || v.motivo || '';
+        const date = v.timestamp || v.Fecha || v.fecha || '';
+
+        return {
+          candidateName: candNameVal,
+          status: isApp ? 'Aprueba' : 'No Aprueba',
+          reason,
+          date
+        };
+      });
+
+      // ORDENAMIENTO REQUERIDO: Organizado por Candidatos, y dentro de cada candidato primero los "No Aprueba"
+      const sortedVotes = [...parsedVotes].sort((a, b) => {
+        // 1. Agrupar por Candidato
+        const nameA = a.candidateName.toLowerCase().trim();
+        const nameB = b.candidateName.toLowerCase().trim();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+
+        // 2. Dentro del mismo candidato, poner "No Aprueba" antes que "Aprueba"
+        if (a.status === 'No Aprueba' && b.status === 'Aprueba') return -1;
+        if (a.status === 'Aprueba' && b.status === 'No Aprueba') return 1;
+        return 0;
+      });
+
+      let rowIdx = 6;
+      sortedVotes.forEach((vote, idx) => {
+        const row = wsVotes.getRow(rowIdx);
+        row.height = 22;
+
+        const isEven = idx % 2 === 1;
+        const rowFillColor = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+        const cCand = wsVotes.getCell(`B${rowIdx}`);
+        cCand.value = vote.candidateName;
+        cCand.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF334155' } };
+
+        const cVerdict = wsVotes.getCell(`C${rowIdx}`);
+        cVerdict.value = vote.status;
+        cVerdict.alignment = { vertical: 'middle', horizontal: 'center' };
+        if (vote.status === 'No Aprueba') {
+          cVerdict.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFECEC' } };
+          cVerdict.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF9B2C2C' } };
+        } else {
+          cVerdict.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6FFFA' } };
+          cVerdict.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF234E52' } };
+        }
+
+        const cComment = wsVotes.getCell(`D${rowIdx}`);
+        cComment.value = vote.reason || '—';
+        cComment.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+        cComment.font = { 
+          name: 'Segoe UI', 
+          size: 10, 
+          italic: vote.status === 'No Aprueba' && !!vote.reason,
+          color: vote.status === 'No Aprueba' && !!vote.reason ? { argb: 'FF475569' } : { argb: 'FF94A3B8' } 
+        };
+
+        const cDate = wsVotes.getCell(`E${rowIdx}`);
+        cDate.value = vote.date ? new Date(vote.date).toLocaleString('es-ES') : '—';
+        cDate.alignment = { vertical: 'middle', horizontal: 'center' };
+        cDate.font = { name: 'Segoe UI', size: 9, color: { argb: 'FF64748B' } };
+
+        [cCand, cComment, cDate].forEach(c => {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowFillColor } };
+        });
+
+        // Separación visual gruesa al cambiar de candidato
+        const isLastOfCandidate = idx === sortedVotes.length - 1 || 
+          sortedVotes[idx + 1].candidateName !== vote.candidateName;
+
+        const borderBottomStyle = isLastOfCandidate ? 'medium' : 'thin';
+        const borderBottomColor = isLastOfCandidate ? 'FF475569' : 'FFE2E8F0';
+
+        [cCand, cVerdict, cComment, cDate].forEach(c => {
+          c.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: borderBottomStyle, color: { argb: borderBottomColor } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+        });
+
+        rowIdx++;
+      });
+
+      // Escribir archivo y descargar en navegador
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `Reporte_Votaciones_ICC_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+
+      showToast('Reporte Excel exportado correctamente', 'success');
+    } catch (error) {
+      console.error('Error al exportar a Excel:', error);
+      showToast(`Error al exportar Excel: ${error.message}`, 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Reset de base de datos local
   const handleResetLocalData = () => {
     if (window.confirm("¿Deseas restaurar la base de datos local a los valores iniciales de prueba? Esto borrará tus cambios locales.")) {
@@ -1354,6 +1741,14 @@ function getSheetData(sheet) {
     ? allVotesParsed 
     : allVotesParsed.filter(v => v.candId === resultsFilter);
 
+  // Paginación y control de cantidad de votos en Dashboard
+  const totalVotesCount = displayVotes.length;
+  const maxPage = votesPerPage === 'all' ? 1 : Math.ceil(totalVotesCount / votesPerPage);
+  const activePage = Math.min(votesCurrentPage, maxPage) || 1;
+  const startIndex = votesPerPage === 'all' ? 0 : (activePage - 1) * votesPerPage;
+  const endIndex = votesPerPage === 'all' ? totalVotesCount : Math.min(startIndex + Number(votesPerPage), totalVotesCount);
+  const paginatedVotes = displayVotes.slice(startIndex, endIndex);
+
   return (
     <div className="card" style={{ flexGrow: 1, padding: '24px', textAlign: 'left' }}>
 
@@ -1399,25 +1794,54 @@ function getSheetData(sheet) {
       {/* TAB RESULTS */}
       {activeTab === 'results' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div className="dashboard-header">
             <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, margin: 0 }}>Resultados de la Votación</h2>
-            {votes.length > 0 && (
-              <Tooltip text="Eliminar permanentemente todos los votos de la base de datos." position="left">
-                <button 
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={handleClearAllVotes}
-                  disabled={isUploading}
-                  style={{ padding: '8px 16px', fontSize: '13px' }}
-                >
-                  {isUploading ? 'Reiniciando...' : 'Reiniciar Votación (Limpiar Votos)'}
-                </button>
-              </Tooltip>
-            )}
+            <div className="dashboard-actions">
+              {votes.length > 0 && (
+                <>
+                  <Tooltip text="Exportar reporte detallado y gráfico de resultados a un archivo Excel." position="bottom">
+                    <button 
+                      type="button"
+                      className="btn btn-success"
+                      onClick={handleExportExcel}
+                      disabled={isExporting}
+                      style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      {isExporting ? (
+                        <>
+                          <div className="spinner-small" style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                          <span>Exportando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                          <span>Exportar a Excel</span>
+                        </>
+                      )}
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Eliminar permanentemente todos los votos de la base de datos." position="left">
+                    <button 
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={handleClearAllVotes}
+                      disabled={isUploading}
+                      style={{ padding: '8px 16px', fontSize: '13px' }}
+                    >
+                      {isUploading ? 'Reiniciando...' : 'Reiniciar Votación (Limpiar Votos)'}
+                    </button>
+                  </Tooltip>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Tarjetas de Estadísticas Globales */}
-          <div className="grid-3" style={{ marginBottom: '32px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '32px' }}>
             <div className="card stat-card">
               <div className="stat-label">Candidatos Activos</div>
               <div className="stat-val">{candidates.length}</div>
@@ -1429,15 +1853,41 @@ function getSheetData(sheet) {
             <div className="card stat-card">
               <div className="stat-label">Han Participado</div>
               <div className="stat-val">
-                {voters.filter(v => v.hasVoted).length}
-                <span style={{ fontSize: '14px', fontWeight: 400, color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                  / {voters.length}
-                </span>
+                {(() => {
+                  const participatedCount = voters.filter(v => {
+                    const voterVotes = votes.filter(vote => {
+                      const vId = String(vote.voterId || vote.ID_Votante || vote["ID Votante"] || '').trim();
+                      const voterId = String(v.id).trim();
+                      return vId === voterId;
+                    });
+                    return v.hasVoted === true || voterVotes.length > 0;
+                  }).length;
+                  const participationPct = voters.length > 0 ? (participatedCount / voters.length) * 100 : 0;
+                  return `${participatedCount} / ${voters.length} (${Math.round(participationPct)}%)`;
+                })()}
+              </div>
+            </div>
+            <div className="card stat-card">
+              <div className="stat-label">Pendientes de Votar</div>
+              <div className="stat-val">
+                {(() => {
+                  const participatedCount = voters.filter(v => {
+                    const voterVotes = votes.filter(vote => {
+                      const vId = String(vote.voterId || vote.ID_Votante || vote["ID Votante"] || '').trim();
+                      const voterId = String(v.id).trim();
+                      return vId === voterId;
+                    });
+                    return v.hasVoted === true || voterVotes.length > 0;
+                  }).length;
+                  const pendingCount = voters.length - participatedCount;
+                  const pendingPct = voters.length > 0 ? (pendingCount / voters.length) * 100 : 0;
+                  return `${pendingCount} / ${voters.length} (${Math.round(pendingPct)}%)`;
+                })()}
               </div>
             </div>
           </div>
 
-          <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, marginBottom: '16px' }}>Votación por Candidato</h3>
+          {/* Resultados por Candidato */}
           {isLoading && candidates.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-secondary)' }}>
               <div className="spinner" style={{ display: 'inline-block', width: '40px', height: '40px', border: '4px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '12px' }}></div>
@@ -1473,99 +1923,256 @@ function getSheetData(sheet) {
               </Tooltip>
             </div>
           ) : (
-            <div className="grid-2" style={{ marginBottom: '32px' }}>
-              {candidates.map(cand => {
-                const stats = getCandidateStats(cand.id);
-                const fullName = `${cand.firstName || ''} ${cand.lastName || ''}`.trim();
-                return (
-                  <div key={cand.id} className={`card result-card ${stats.approvalRate >= 75 ? 'high-approval' : ''}`}>
-                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '12px' }}>
-                      <CandidatePhoto
-                        photo={cand.photo}
-                        firstName={cand.firstName}
-                        lastName={cand.lastName}
-                        className="candidate-avatar"
-                        style={{ width: '60px', height: '60px' }}
-                      />
-                      <div>
-                        <h4 className="candidate-name" style={{ margin: 0 }}>{fullName}</h4>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                          Aprobación: <strong>{stats.approvalRate}%</strong> ({stats.total} votos totales)
-                        </div>
-                      </div>
-                    </div>
+            <div className="card collapsible-section" style={{ marginBottom: '24px', padding: 0, overflow: 'hidden', border: '1px solid var(--border)' }}>
+              <button 
+                type="button" 
+                onClick={() => setShowCandidateResults(!showCandidateResults)}
+                style={{
+                  width: '100%',
+                  padding: '16px 20px',
+                  background: 'var(--bg-card)',
+                  border: 'none',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  outline: 'none',
+                  fontFamily: 'var(--font-heading)',
+                  fontWeight: 600,
+                  fontSize: '16px',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>📊</span>
+                  <span>Votación por Candidato (Resumen)</span>
+                </div>
+                <span style={{ 
+                  transform: showCandidateResults ? 'rotate(180deg)' : 'rotate(0deg)', 
+                  transition: 'transform 0.2s ease',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)'
+                }}>
+                  ▼
+                </span>
+              </button>
+              
+              {showCandidateResults && (
+                <div style={{ padding: '20px', borderTop: '1px solid var(--border)' }}>
+                  <div className="grid-2">
+                    {candidates.map(cand => {
+                      const stats = getCandidateStats(cand.id);
+                      const fullName = `${cand.firstName || ''} ${cand.lastName || ''}`.trim();
+                      return (
+                        <div key={cand.id} className={`card result-card ${stats.approvalRate >= 75 ? 'high-approval' : ''}`} style={{ margin: 0 }}>
+                          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '12px' }}>
+                            <CandidatePhoto
+                              photo={cand.photo}
+                              firstName={cand.firstName}
+                              lastName={cand.lastName}
+                              className="candidate-avatar"
+                              style={{ width: '60px', height: '60px' }}
+                            />
+                            <div>
+                              <h4 className="candidate-name" style={{ margin: 0 }}>{fullName}</h4>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                Aprobación: <strong>{stats.approvalRate}%</strong> ({stats.total} votos totales)
+                              </div>
+                            </div>
+                          </div>
 
-                    <div className="progress-container">
-                      <div className="progress-bar-bg">
-                        <div className="progress-bar-fill-approve" style={{ width: `${stats.total > 0 ? (stats.approves / stats.total) * 100 : 0}%` }}></div>
-                        <div className="progress-bar-fill-disapprove" style={{ width: `${stats.total > 0 ? (stats.disapproves / stats.total) * 100 : 0}%` }}></div>
-                      </div>
-                      <div className="progress-stats">
-                        <span style={{ color: 'var(--success)' }}>Aprueba: {stats.approves}</span>
-                        <span style={{ color: 'var(--danger)' }}>No Aprueba: {stats.disapproves}</span>
-                      </div>
-                    </div>
+                          <div className="progress-container">
+                            <div className="progress-bar-bg">
+                              <div className="progress-bar-fill-approve" style={{ width: `${stats.total > 0 ? (stats.approves / stats.total) * 100 : 0}%` }}></div>
+                              <div className="progress-bar-fill-disapprove" style={{ width: `${stats.total > 0 ? (stats.disapproves / stats.total) * 100 : 0}%` }}></div>
+                            </div>
+                            <div className="progress-stats">
+                              <span style={{ color: 'var(--success)' }}>Aprueba: {stats.approves}</span>
+                              <span style={{ color: 'var(--danger)' }}>No Aprueba: {stats.disapproves}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Tabla de Votos Detallada */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, margin: 0 }}>Desglose de Votos Recibidos</h3>
-            <div>
-              <label style={{ fontSize: '13px', marginRight: '8px', fontWeight: 600, color: 'var(--text-secondary)' }}>Filtrar candidato:</label>
-              <select 
-                className="form-control" 
-                style={{ display: 'inline-block', width: 'auto', padding: '6px 12px', fontSize: '13px' }}
-                value={resultsFilter}
-                onChange={(e) => setResultsFilter(e.target.value)}
+          {/* Desglose Detallado de Votos (Colapsable) */}
+          {candidates.length > 0 && (
+            <div className="card collapsible-section" style={{ marginBottom: '24px', padding: 0, overflow: 'hidden', border: '1px solid var(--border)' }}>
+              <button 
+                type="button" 
+                onClick={() => setShowVotesList(!showVotesList)}
+                style={{
+                  width: '100%',
+                  padding: '16px 20px',
+                  background: 'var(--bg-card)',
+                  border: 'none',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  outline: 'none',
+                  fontFamily: 'var(--font-heading)',
+                  fontWeight: 600,
+                  fontSize: '16px',
+                  color: 'var(--text-primary)'
+                }}
               >
-                <option value="all">Todos los candidatos</option>
-                {candidates.map(c => (
-                  <option key={c.id} value={c.id}>{`${c.firstName || ''} ${c.lastName || ''}`.trim()}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>📋</span>
+                  <span>Desglose Detallado de Votos ({displayVotes.length})</span>
+                </div>
+                <span style={{ 
+                  transform: showVotesList ? 'rotate(180deg)' : 'rotate(0deg)', 
+                  transition: 'transform 0.2s ease',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)'
+                }}>
+                  ▼
+                </span>
+              </button>
 
-          <div className="votos-table-container">
-            {displayVotes.length === 0 ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No se han registrado votos todavía para este criterio.
-              </div>
-            ) : (
-              <table className="votos-table">
-                <thead>
-                  <tr>
-                    <th>Candidato</th>
-                    <th>Veredicto</th>
-                    <th>Motivo de Objeción (Si aplica)</th>
-                    <th>Fecha</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayVotes.map((vote, index) => (
-                    <tr key={index}>
-                      <td style={{ fontWeight: 600 }}>{vote.candidateName}</td>
-                      <td>
-                        <span className={`badge ${vote.status === 'Aprueba' ? 'badge-success' : 'badge-danger'}`}>
-                          {vote.status}
-                        </span>
-                      </td>
-                      <td style={{ color: vote.status === 'No Aprueba' ? 'var(--danger)' : 'var(--text-secondary)', fontStyle: vote.status === 'No Aprueba' ? 'italic' : 'normal' }}>
-                        {vote.reason ? vote.reason : '—'}
-                      </td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        {vote.date ? new Date(vote.date).toLocaleString('es-ES') : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+              {showVotesList && (
+                <div style={{ padding: '20px', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                    <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, margin: 0, fontSize: '15px' }}>Detalles de Votos Recibidos</h3>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div>
+                        <label style={{ fontSize: '13px', marginRight: '8px', fontWeight: 600, color: 'var(--text-secondary)' }}>Mostrar:</label>
+                        <select 
+                          className="form-control" 
+                          style={{ display: 'inline-block', width: 'auto', padding: '6px 12px', fontSize: '13px' }}
+                          value={votesPerPage}
+                          onChange={(e) => {
+                            const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                            setVotesPerPage(val);
+                            setVotesCurrentPage(1);
+                          }}
+                        >
+                          <option value={10}>10 votos</option>
+                          <option value={20}>20 votos</option>
+                          <option value={30}>30 votos</option>
+                          <option value={50}>50 votos</option>
+                          <option value="all">Todos</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '13px', marginRight: '8px', fontWeight: 600, color: 'var(--text-secondary)' }}>Filtrar candidato:</label>
+                        <select 
+                          className="form-control" 
+                          style={{ display: 'inline-block', width: 'auto', padding: '6px 12px', fontSize: '13px' }}
+                          value={resultsFilter}
+                          onChange={(e) => {
+                            setResultsFilter(e.target.value);
+                            setVotesCurrentPage(1);
+                          }}
+                        >
+                          <option value="all">Todos los candidatos</option>
+                          {candidates.map(c => (
+                            <option key={c.id} value={c.id}>{`${c.firstName || ''} ${c.lastName || ''}`.trim()}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="votos-table-container">
+                    {displayVotes.length === 0 ? (
+                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No se han registrado votos todavía para este criterio.
+                      </div>
+                    ) : (
+                      <>
+                        <table className="votos-table">
+                          <thead>
+                            <tr>
+                              <th>Candidato</th>
+                              <th>Veredicto</th>
+                              <th>Motivo de Objeción (Si aplica)</th>
+                              <th>Fecha</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paginatedVotes.map((vote, index) => (
+                              <tr key={index}>
+                                <td data-label="Candidato" style={{ fontWeight: 600 }}>{vote.candidateName}</td>
+                                <td data-label="Veredicto">
+                                  <span className={`badge ${vote.status === 'Aprueba' ? 'badge-success' : 'badge-danger'}`}>
+                                    {vote.status}
+                                  </span>
+                                </td>
+                                <td data-label="Motivo" style={{ color: vote.status === 'No Aprueba' ? 'var(--danger)' : 'var(--text-secondary)', fontStyle: vote.status === 'No Aprueba' ? 'italic' : 'normal' }}>
+                                  {vote.reason ? vote.reason : '—'}
+                                </td>
+                                <td data-label="Fecha" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                  {vote.date ? new Date(vote.date).toLocaleString('es-ES') : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+
+                        {/* Controles de Paginación */}
+                        {votesPerPage !== 'all' && totalVotesCount > votesPerPage && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                              Mostrando <strong>{startIndex + 1}</strong> - <strong>{endIndex}</strong> de <strong>{totalVotesCount}</strong> votos
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button 
+                                type="button"
+                                className="btn btn-secondary" 
+                                style={{ padding: '6px 12px', fontSize: '13px', height: '34px', display: 'flex', alignItems: 'center' }}
+                                disabled={activePage === 1}
+                                onClick={() => setVotesCurrentPage(prev => Math.max(prev - 1, 1))}
+                              >
+                                Anterior
+                              </button>
+                              {Array.from({ length: maxPage }, (_, i) => i + 1).map(pageNum => {
+                                if (maxPage > 6 && Math.abs(pageNum - activePage) > 1 && pageNum !== 1 && pageNum !== maxPage) {
+                                  if (pageNum === 2 || pageNum === maxPage - 1) {
+                                    return <span key={pageNum} style={{ alignSelf: 'center', padding: '0 4px', color: 'var(--text-muted)' }}>...</span>;
+                                  }
+                                  return null;
+                                }
+                                return (
+                                  <button 
+                                    type="button"
+                                    key={pageNum}
+                                    className={`btn ${pageNum === activePage ? 'btn-primary' : 'btn-secondary'}`}
+                                    style={{ padding: '6px 12px', fontSize: '13px', minWidth: '35px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                    onClick={() => setVotesCurrentPage(pageNum)}
+                                  >
+                                    {pageNum}
+                                  </button>
+                                );
+                              })}
+                              <button 
+                                type="button"
+                                className="btn btn-secondary" 
+                                style={{ padding: '6px 12px', fontSize: '13px', height: '34px', display: 'flex', alignItems: 'center' }}
+                                disabled={activePage === maxPage}
+                                onClick={() => setVotesCurrentPage(prev => Math.min(prev + 1, maxPage))}
+                              >
+                                Siguiente
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
 
           {/* Database actions panel at the bottom */}
           <div style={{ marginTop: '40px', paddingTop: '24px', borderTop: '1px solid var(--border)', display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -2136,4 +2743,227 @@ function getSheetData(sheet) {
       )}
     </div>
   );
+}
+
+// ----------------------------------------------------
+// FUNCIONES AUXILIARES PARA EXPORTACIÓN DE EXCEL
+// ----------------------------------------------------
+
+// Estila el fondo y bordes de celdas combinadas de tarjetas ANTES de realizar el merge
+function styleAndMergeCard(ws, range, title, value) {
+  const [start, end] = range.split(':');
+  const startCol = start.charCodeAt(0) - 65 + 1; // 'B' -> 2
+  const startRow = parseInt(start.substring(1));
+  const endCol = (end || start).charCodeAt(0) - 65 + 1;
+  const endRow = parseInt((end || start).substring(1));
+
+  // 1. Estilar todas las celdas en el rango individualmente
+  for (let r = startRow; r <= endRow; r++) {
+    for (let c = startCol; c <= endCol; c++) {
+      const cell = ws.getCell(r, c);
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF8FAFC' } // Slate 50
+      };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFCBD5E1' } }, // Slate 300
+        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+      };
+    }
+  }
+
+  // 2. Realizar el merge de celdas si es un rango
+  if (range.includes(':')) {
+    ws.mergeCells(range);
+  }
+
+  // 3. Escribir el valor alineado al centro en la celda maestra (esquina superior izquierda)
+  const masterCell = ws.getCell(startRow, startCol);
+  masterCell.value = {
+    richText: [
+      { text: title + '\n', font: { name: 'Segoe UI', size: 9, color: { argb: 'FF64748B' } } },
+      { text: value, font: { name: 'Segoe UI', size: 16, bold: true, color: { argb: 'FF0F172A' } } }
+    ]
+  };
+  masterCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+}
+
+// Dibuja un gráfico de barras agrupadas en un canvas temporal y devuelve la imagen Base64
+function generateChartImage(candidates, getCandidateStats) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 800;
+  canvas.height = 430;
+  const ctx = canvas.getContext('2d');
+
+  // Fondo blanco limpio
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Agregar un borde sutil al gráfico para dar estructura de tarjeta
+  ctx.strokeStyle = '#F1F5F9';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+
+  const paddingLeft = 80;
+  const paddingRight = 40;
+  const paddingTop = 70;
+  const paddingBottom = 80;
+  const graphWidth = canvas.width - paddingLeft - paddingRight;
+  const graphHeight = canvas.height - paddingTop - paddingBottom;
+
+  // Título del Gráfico
+  ctx.fillStyle = '#0F172A'; // Slate 900
+  ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Resultados de Votación: Aprobaciones vs Objeciones', paddingLeft, 38);
+
+  // Leyenda
+  const legendX = canvas.width - 260;
+  const legendY = 25;
+  
+  // Leyenda Aprueba
+  ctx.fillStyle = '#10B981'; // Emerald 500
+  ctx.fillRect(legendX, legendY, 15, 15);
+  ctx.fillStyle = '#475569'; // Slate 600
+  ctx.font = '13px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('Aprueba', legendX + 22, legendY + 12);
+
+  // Leyenda No Aprueba
+  ctx.fillStyle = '#EF4444'; // Red 500
+  ctx.fillRect(legendX + 110, legendY, 15, 15);
+  ctx.fillStyle = '#475569';
+  ctx.fillText('No Aprueba', legendX + 132, legendY + 12);
+
+  // Datos
+  const data = candidates.map(c => {
+    const stats = getCandidateStats(c.id);
+    return {
+      name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+      approves: stats.approves,
+      disapproves: stats.disapproves,
+      total: stats.total
+    };
+  });
+
+  // Encontrar el valor máximo para escalar el eje Y
+  let maxVal = 5;
+  data.forEach(d => {
+    const candMax = Math.max(d.approves, d.disapproves);
+    if (candMax > maxVal) {
+      maxVal = candMax;
+    }
+  });
+  maxVal = Math.ceil(maxVal / 5) * 5;
+
+  // Dibujar líneas de cuadrícula y etiquetas del eje Y
+  const yTicks = 5;
+  ctx.strokeStyle = '#F1F5F9'; // Slate 100
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = '#64748B'; // Slate 500
+  ctx.font = '12px "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'right';
+
+  for (let i = 0; i <= yTicks; i++) {
+    const val = (maxVal / yTicks) * i;
+    const y = paddingTop + graphHeight - (i * (graphHeight / yTicks));
+    
+    // Línea de cuadrícula
+    ctx.beginPath();
+    ctx.moveTo(paddingLeft, y);
+    ctx.lineTo(canvas.width - paddingRight, y);
+    ctx.stroke();
+
+    // Etiqueta
+    ctx.fillText(Math.round(val).toString(), paddingLeft - 12, y + 4);
+  }
+
+  // Ejes X y Y
+  ctx.strokeStyle = '#CBD5E1'; // Slate 300
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(paddingLeft, paddingTop);
+  ctx.lineTo(paddingLeft, paddingTop + graphHeight);
+  ctx.lineTo(canvas.width - paddingRight, paddingTop + graphHeight);
+  ctx.stroke();
+
+  // Función auxiliar para dibujar barras con esquinas superiores redondeadas
+  function drawRoundedBar(cCtx, x, y, width, height, radius) {
+    if (height <= 0) return;
+    cCtx.beginPath();
+    cCtx.moveTo(x + radius, y);
+    cCtx.lineTo(x + width - radius, y);
+    cCtx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    cCtx.lineTo(x + width, y + height);
+    cCtx.lineTo(x, y + height);
+    cCtx.lineTo(x, y + radius);
+    cCtx.quadraticCurveTo(x, y, x + radius, y);
+    cCtx.closePath();
+    cCtx.fill();
+  }
+
+  // Dibujar Barras
+  const numGroups = data.length;
+  const groupWidth = graphWidth / numGroups;
+  const barWidth = groupWidth * 0.33; // 33% del ancho de grupo
+  const groupGap = groupWidth * 0.14; // Separación a los lados
+
+  data.forEach((d, idx) => {
+    const groupX = paddingLeft + (idx * groupWidth) + groupGap;
+    const cornerRad = Math.min(5, barWidth / 2);
+
+    // Barra de "Aprueba" (Verde)
+    const appHeight = d.total > 0 ? (d.approves / maxVal) * graphHeight : 0;
+    const appX = groupX;
+    const appY = paddingTop + graphHeight - appHeight;
+    
+    if (appHeight > 0) {
+      ctx.fillStyle = '#10B981';
+      drawRoundedBar(ctx, appX, appY, barWidth, appHeight, cornerRad);
+      
+      // Número encima de la barra
+      ctx.fillStyle = '#065F46';
+      ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(d.approves.toString(), appX + barWidth / 2, appY - 6);
+    }
+
+    // Barra de "No Aprueba" (Rojo)
+    const disHeight = d.total > 0 ? (d.disapproves / maxVal) * graphHeight : 0;
+    const disX = groupX + barWidth + 6; // Espacio de 6px entre barras
+    const disY = paddingTop + graphHeight - disHeight;
+
+    if (disHeight > 0) {
+      ctx.fillStyle = '#EF4444';
+      drawRoundedBar(ctx, disX, disY, barWidth, disHeight, cornerRad);
+
+      // Número encima de la barra
+      ctx.fillStyle = '#991B1B';
+      ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(d.disapproves.toString(), disX + barWidth / 2, disY - 6);
+    }
+
+    // Eje X: Nombre del candidato
+    ctx.fillStyle = '#334155'; // Slate 700
+    ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    
+    const labelX = groupX + barWidth + 3;
+    const labelY = paddingTop + graphHeight + 22;
+
+    const nameParts = d.name.split(' ');
+    if (nameParts.length > 2) {
+      const line1 = nameParts.slice(0, 2).join(' ');
+      const line2 = nameParts.slice(2).join(' ');
+      ctx.fillText(line1, labelX, labelY);
+      ctx.fillText(line2, labelX, labelY + 16);
+    } else {
+      ctx.fillText(d.name, labelX, labelY);
+    }
+  });
+
+  return canvas.toDataURL('image/png');
 }
