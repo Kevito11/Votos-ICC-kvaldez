@@ -16,6 +16,7 @@ export default function VoterPanel({
   isLoading
 }) {
   const [selectedVoter, setSelectedVoter] = useState(null);
+  const [nonPresentVoter, setNonPresentVoter] = useState(null);
   const [voterSearchText, setVoterSearchText] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [isFocused, setIsFocused] = useState(false);
@@ -37,10 +38,33 @@ export default function VoterPanel({
         return;
       }
 
-      const filtered = voters.filter(v => {
-        const fullName = `${v.name || ''} ${v.lastName || ''}`.trim().toLowerCase();
-        return fullName.includes(voterSearchText.toLowerCase());
-      });
+      const queryNorm = voterSearchText.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+      const getSearchScore = (fullName, query) => {
+        if (!query) return 0;
+        if (fullName.startsWith(query)) return 3;
+        const words = fullName.split(/\s+/);
+        if (words.some(w => w.startsWith(query))) return 2;
+        if (fullName.includes(query)) return 1;
+        return 0;
+      };
+
+      const filtered = voters
+        .map(v => {
+          const fullName = `${v.name || ''} ${v.lastName || ''}`.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+          const score = getSearchScore(fullName, queryNorm);
+          return { voter: v, score };
+        })
+        .filter(item => item.score > 0)
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          // Si coinciden en relevancia, ordenar alfabéticamente
+          const nameA = `${a.voter.name || ''} ${a.voter.lastName || ''}`.trim().toLowerCase();
+          const nameB = `${b.voter.name || ''} ${b.voter.lastName || ''}`.trim().toLowerCase();
+          return nameA.localeCompare(nameB);
+        })
+        .map(item => item.voter);
+
       setSuggestions(filtered);
       setHighlightedIndex(0);
     }, 0);
@@ -129,6 +153,14 @@ export default function VoterPanel({
 
   // Manejar la selección de un votante
   const handleSelectVoter = async (voter) => {
+    // Si no está habilitado como presente, bloquear acceso y mostrar pantalla de error
+    if (voter.isPresent === false) {
+      setNonPresentVoter(voter);
+      setVoterSearchText('');
+      setSuggestions([]);
+      return;
+    }
+
     setSelectedVoter(voter);
     const fullName = `${voter.name || ''} ${voter.lastName || ''}`.trim();
     setVoterSearchText(fullName);
@@ -323,7 +355,7 @@ export default function VoterPanel({
     <div className="voter-container">
       
       {/* PASO 1: SELECCIONAR VOTANTE */}
-      {!selectedVoter && (
+      {!selectedVoter && !nonPresentVoter && (
         <div className="card voter-card" style={{ padding: '32px 24px', textAlign: 'center' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📖</div>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, marginBottom: '12px' }}>
@@ -359,7 +391,12 @@ export default function VoterPanel({
                       onMouseDown={() => handleSelectVoter(v)}
                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }}
                     >
-                      <span style={{ fontWeight: '500' }}>{v.name} {v.lastName}</span>
+                      <span style={{ fontWeight: '500', color: v.isPresent === false ? 'var(--text-muted)' : 'inherit' }}>
+                        {v.name} {v.lastName}
+                        {v.isPresent === false && (
+                          <span style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: 'normal', marginLeft: '6px' }}>(Ausente / No habilitado)</span>
+                        )}
+                      </span>
                       <span style={{ 
                         fontSize: '11px', 
                         fontWeight: '700', 
@@ -387,6 +424,29 @@ export default function VoterPanel({
           <div style={{ marginTop: '32px', borderTop: '1px solid var(--border)', paddingTop: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
             ¿No apareces en la lista? Comunícate con el panel administrativo para registrarte.
           </div>
+        </div>
+      )}
+
+      {/* CASO ESPECIAL: VOTANTE NO MARCADO COMO PRESENTE */}
+      {nonPresentVoter && (
+        <div className="card voter-card error-view" style={{ padding: '32px 24px', textAlign: 'center', animation: 'fadeIn 0.3s ease-out' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, color: 'var(--danger)', marginBottom: '12px' }}>
+            Acceso no habilitado
+          </h2>
+          <p style={{ color: 'var(--text-primary)', fontSize: '15px', marginBottom: '16px', lineHeight: '1.5' }}>
+            Hermano(a) <strong>{`${nonPresentVoter.name || ''} ${nonPresentVoter.lastName || ''}`.trim()}</strong>, no estás marcado(a) como presente en el censo para la votación de hoy.
+          </p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '24px' }}>
+            Por favor, acércate a la mesa directiva o al administrador para registrar tu asistencia e ingresar a votar.
+          </p>
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => setNonPresentVoter(null)}
+            style={{ padding: '10px 20px', fontWeight: 600, border: '1px solid var(--border)' }}
+          >
+            Regresar al buscador
+          </button>
         </div>
       )}
 

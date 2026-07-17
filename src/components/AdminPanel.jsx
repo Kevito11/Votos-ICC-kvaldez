@@ -44,14 +44,37 @@ export default function AdminPanel({
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [editingCandidateId, setEditingCandidateId] = useState(null);
+  const [expandedCandidateId, setExpandedCandidateId] = useState(null);
 
   // Estados de Gestión de Votantes
   const [voterFirstName, setVoterFirstName] = useState('');
   const [voterLastName, setVoterLastName] = useState('');
   const [bulkVotersText, setBulkVotersText] = useState('');
   const [voterSearch, setVoterSearch] = useState('');
-  const [voterStatusFilter, setVoterStatusFilter] = useState('all'); // 'all' | 'pending' | 'partial' | 'completed'
+  const [voterPresenceFilter, setVoterPresenceFilter] = useState('all'); // 'all' | 'present' | 'absent'
+  const [voterProgressFilter, setVoterProgressFilter] = useState('all'); // 'all' | 'pending' | 'partial' | 'completed'
   const [selectedVoterIds, setSelectedVoterIds] = useState([]);
+  const [activeHeaderFilter, setActiveHeaderFilter] = useState(null); // null | 'name' | 'presence' | 'progress'
+  const [voterSortKey, setVoterSortKey] = useState('name'); // 'name' | 'presence' | 'progress'
+  const [voterSortDirection, setVoterSortDirection] = useState('asc'); // 'asc' | 'desc'
+
+  // Cerrar los desplegables de filtros al hacer clic fuera de ellos (Excel-like)
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      // Si el clic fue en un disparador o en un menú del filtro, no hacer nada
+      if (e.target.closest('.excel-filter-trigger') || e.target.closest('.excel-filter-dropdown')) {
+        return;
+      }
+      setActiveHeaderFilter(null);
+    };
+
+    if (activeHeaderFilter) {
+      document.addEventListener('click', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [activeHeaderFilter]);
 
   // Filtro de resultados
   const [resultsFilter, setResultsFilter] = useState('all');
@@ -75,7 +98,7 @@ function doGet(e) {
   var membersSheet = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
   if (!membersSheet) {
     membersSheet = sheet.insertSheet("Miembros");
-    membersSheet.appendRow(["ID", "Nombre", "Apellido"]);
+    membersSheet.appendRow(["ID", "Nombre", "Apellido", "Has Voted", "Fecha Voto", "Presente"]);
   }
   
   var candidatesSheet = sheet.getSheetByName("Candidatos");
@@ -86,7 +109,7 @@ function doGet(e) {
     // Asegurar columna Foto
     var headers = candidatesSheet.getRange(1, 1, 1, candidatesSheet.getLastColumn()).getValues()[0];
     if (headers.indexOf("Foto") === -1) {
-      candidatesSheet.getRange(1, headers.length + 1).setValue("Foto");
+      candidatesSheet.getRange(1, candidatesSheet.getLastColumn() + 1).setValue("Foto");
     }
   }
   
@@ -95,11 +118,16 @@ function doGet(e) {
     newSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "ID Votante", "Timestamp"]);
   }
 
-  // Asegurar columnas Has Voted y Fecha Voto en hoja Miembros
+  // Asegurar columnas Has Voted, Fecha Voto y Presente en hoja Miembros
   var membersHeaders = membersSheet.getRange(1, 1, 1, membersSheet.getLastColumn()).getValues()[0];
   if (membersHeaders.indexOf("Has Voted") === -1) {
-    membersSheet.getRange(1, membersHeaders.length + 1).setValue("Has Voted");
-    membersSheet.getRange(1, membersHeaders.length + 2).setValue("Fecha Voto");
+    membersSheet.getRange(1, membersSheet.getLastColumn() + 1).setValue("Has Voted");
+  }
+  if (membersHeaders.indexOf("Fecha Voto") === -1) {
+    membersSheet.getRange(1, membersSheet.getLastColumn() + 1).setValue("Fecha Voto");
+  }
+  if (membersHeaders.indexOf("Presente") === -1) {
+    membersSheet.getRange(1, membersSheet.getLastColumn() + 1).setValue("Presente");
   }
 
   var action = e.parameter.action;
@@ -127,7 +155,7 @@ function doPost(e) {
   // Asegurar hojas creadas
   if (!membersSheet) {
     membersSheet = sheet.insertSheet("Miembros");
-    membersSheet.appendRow(["ID", "Nombre", "Apellido"]);
+    membersSheet.appendRow(["ID", "Nombre", "Apellido", "Has Voted", "Fecha Voto", "Presente"]);
   }
   
   var candidatesSheet = sheet.getSheetByName("Candidatos");
@@ -138,7 +166,7 @@ function doPost(e) {
     // Asegurar columna Foto
     var headers = candidatesSheet.getRange(1, 1, 1, candidatesSheet.getLastColumn()).getValues()[0];
     if (headers.indexOf("Foto") === -1) {
-      candidatesSheet.getRange(1, headers.length + 1).setValue("Foto");
+      candidatesSheet.getRange(1, candidatesSheet.getLastColumn() + 1).setValue("Foto");
     }
   }
   
@@ -147,13 +175,18 @@ function doPost(e) {
     newSheet.appendRow(["ID Candidato", "Nombre Candidato", "Apellido Candidato", "Estado", "Motivo", "ID Votante", "Timestamp"]);
   }
 
-  // Asegurar columnas Has Voted y Fecha Voto en hoja Miembros
+  // Asegurar columnas Has Voted, Fecha Voto y Presente en hoja Miembros
   var membersSheet2 = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
   if (membersSheet2) {
     var mHeaders = membersSheet2.getRange(1, 1, 1, membersSheet2.getLastColumn()).getValues()[0];
     if (mHeaders.indexOf("Has Voted") === -1) {
-      membersSheet2.getRange(1, mHeaders.length + 1).setValue("Has Voted");
-      membersSheet2.getRange(1, mHeaders.length + 2).setValue("Fecha Voto");
+      membersSheet2.getRange(1, membersSheet2.getLastColumn() + 1).setValue("Has Voted");
+    }
+    if (mHeaders.indexOf("Fecha Voto") === -1) {
+      membersSheet2.getRange(1, membersSheet2.getLastColumn() + 1).setValue("Fecha Voto");
+    }
+    if (mHeaders.indexOf("Presente") === -1) {
+      membersSheet2.getRange(1, membersSheet2.getLastColumn() + 1).setValue("Presente");
     }
   }
 
@@ -162,14 +195,15 @@ function doPost(e) {
 
   if (action === "updateVoters") {
     membersSheet.clear();
-    membersSheet.appendRow(["ID", "Nombre", "Apellido", "Has Voted", "Fecha Voto"]);
+    membersSheet.appendRow(["ID", "Nombre", "Apellido", "Has Voted", "Fecha Voto", "Presente"]);
     data.voters.forEach(function(v) {
       membersSheet.appendRow([
         v.id || v.ID || "", 
         v.name || v.Nombre || "", 
         v.lastName || v.Apellido || "",
         v.hasVoted === true ? true : false,
-        v.votedAt || ""
+        v.votedAt || "",
+        v.isPresent !== false ? true : false
       ]);
     });
     return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
@@ -559,6 +593,7 @@ function getSheetData(sheet) {
     setCandLastName(cand.lastName || '');
     setCandTestimony(cand.testimony || '');
     setCandPhotoFile(null);
+    setExpandedCandidateId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
     showToast(`Editando a: ${cand.firstName} ${cand.lastName}`, "info");
@@ -570,6 +605,7 @@ function getSheetData(sheet) {
     setCandLastName('');
     setCandTestimony('');
     setCandPhotoFile(null);
+    setExpandedCandidateId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -709,7 +745,7 @@ function getSheetData(sheet) {
   // Eliminar Candidato
   const handleDeleteCandidate = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar a este candidato? Esto eliminará sus registros.")) return;
-
+    setExpandedCandidateId(null);
     try {
       if (config.sheetUrlVoters) {
         if (!isConnected) {
@@ -804,7 +840,8 @@ function getSheetData(sheet) {
     const newVoter = {
       id: nextIdStr,
       name: fName,
-      lastName: lName
+      lastName: lName,
+      isPresent: true
     };
 
     const updatedVoters = [...voters, newVoter];
@@ -815,8 +852,8 @@ function getSheetData(sheet) {
           throw new Error("No hay conexión con Google Sheets. No se puede agregar el votante.");
         }
         await updateVotersInSheets(config.sheetUrlVoters, updatedVoters);
+        setVoters(updatedVoters);
         showToast("Votante registrado en Google Sheets", "success");
-        refreshData();
       } else {
         setVoters(updatedVoters);
         localStorage.setItem('icc_local_voters', JSON.stringify(updatedVoters));
@@ -869,7 +906,8 @@ function getSheetData(sheet) {
         uniqueNewVoters.push({
           id: nextIdStr,
           name,
-          lastName
+          lastName,
+          isPresent: true
         });
       }
     });
@@ -910,8 +948,8 @@ function getSheetData(sheet) {
           throw new Error("No hay conexión con Google Sheets. No se puede eliminar el votante.");
         }
         await updateVotersInSheets(config.sheetUrlVoters, updatedVoters);
+        setVoters(updatedVoters);
         showToast("Votante eliminado", "success");
-        refreshData();
       } else {
         setVoters(updatedVoters);
         localStorage.setItem('icc_local_voters', JSON.stringify(updatedVoters));
@@ -920,6 +958,92 @@ function getSheetData(sheet) {
     } catch (error) {
       console.error(error);
       showToast(`Error al eliminar votante: ${error.message}`, "error");
+    }
+  };
+
+  const handleToggleVoterPresence = async (voter, isPresent) => {
+    // 1. Guardar en el fallback local usando el nombre completo como clave
+    try {
+      const stored = localStorage.getItem('icc_voter_attendance');
+      const attendanceMap = stored ? JSON.parse(stored) : {};
+      const nameKey = `${voter.name || ''} ${voter.lastName || ''}`.trim().toLowerCase();
+      attendanceMap[nameKey] = isPresent;
+      localStorage.setItem('icc_voter_attendance', JSON.stringify(attendanceMap));
+    } catch (e) {
+      console.error("Error saving attendance to localStorage fallback:", e);
+    }
+
+    // 2. Actualizar el estado de React inmediatamente de forma optimista
+    const updatedVoters = voters.map(v => 
+      String(v.id) === String(voter.id) ? { ...v, isPresent } : v
+    );
+    setVoters(updatedVoters);
+    
+    // 3. Persistir en servidor o almacenamiento local
+    try {
+      if (config.sheetUrlVoters) {
+        if (!isConnected) {
+          throw new Error("No hay conexión con Google Sheets. No se puede guardar la asistencia.");
+        }
+        await updateVotersInSheets(config.sheetUrlVoters, updatedVoters);
+        showToast(`Asistencia de ${voter.name} actualizada`, "success");
+      } else {
+        localStorage.setItem('icc_local_voters', JSON.stringify(updatedVoters));
+        showToast(`Asistencia de ${voter.name} actualizada localmente`, "success");
+      }
+    } catch (error) {
+      console.error(error);
+      showToast(`Error al guardar asistencia: ${error.message}`, "error");
+      // Revertir en caso de error
+      setVoters(voters);
+    }
+  };
+
+  const handleBulkTogglePresence = async (isPresent) => {
+    if (selectedVoterIds.length === 0) return;
+    
+    // 1. Guardar en el fallback local usando el nombre completo de cada votante como clave
+    try {
+      const stored = localStorage.getItem('icc_voter_attendance');
+      const attendanceMap = stored ? JSON.parse(stored) : {};
+      selectedVoterIds.forEach(id => {
+        const voter = voters.find(v => String(v.id) === String(id));
+        if (voter) {
+          const nameKey = `${voter.name || ''} ${voter.lastName || ''}`.trim().toLowerCase();
+          attendanceMap[nameKey] = isPresent;
+        }
+      });
+      localStorage.setItem('icc_voter_attendance', JSON.stringify(attendanceMap));
+    } catch (e) {
+      console.error("Error saving bulk attendance to localStorage fallback:", e);
+    }
+
+    // 2. Actualizar el estado de React inmediatamente de forma optimista
+    const updatedVoters = voters.map(v => 
+      selectedVoterIds.some(id => String(id) === String(v.id)) ? { ...v, isPresent } : v
+    );
+    setVoters(updatedVoters);
+    
+    setIsUploading(true);
+    try {
+      if (config.sheetUrlVoters) {
+        if (!isConnected) {
+          throw new Error("No hay conexión con Google Sheets.");
+        }
+        await updateVotersInSheets(config.sheetUrlVoters, updatedVoters);
+        showToast("Asistencia masiva registrada en Google Sheets", "success");
+      } else {
+        localStorage.setItem('icc_local_voters', JSON.stringify(updatedVoters));
+        showToast("Asistencia masiva registrada localmente", "success");
+      }
+      setSelectedVoterIds([]);
+    } catch (error) {
+      console.error(error);
+      showToast(`Error al actualizar asistencia: ${error.message}`, "error");
+      // Revertir en caso de error
+      setVoters(voters);
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -932,8 +1056,8 @@ function getSheetData(sheet) {
           throw new Error("No hay conexión con Google Sheets. No se puede vaciar la lista de votantes.");
         }
         await updateVotersInSheets(config.sheetUrlVoters, []);
+        setVoters([]);
         showToast("Lista de votantes vaciada", "success");
-        refreshData();
       } else {
         setVoters([]);
         safeSetLocalStorage('icc_local_voters', JSON.stringify([]));
@@ -999,8 +1123,18 @@ function getSheetData(sheet) {
           throw new Error("No hay conexión con Google Sheets. No se pueden restablecer los votos.");
         }
         await resetVoterVotesInSheets(config.sheetUrlCandidates, { voterId: voter.id });
+        
+        // Actualizar localmente los votantes y los votos
+        const targetVoterId = String(voter.id).trim();
+        const updatedVoters = voters.map(v => 
+          String(v.id).trim() === targetVoterId ? { ...v, hasVoted: false, votedAt: '' } : v
+        );
+        setVoters(updatedVoters);
+
+        const updatedVotes = votes.filter(v => String(v.voterId || '').trim() !== targetVoterId);
+        setVotes(updatedVotes);
+
         showToast(`Participación de ${fullName} restablecida en Google Sheets`, "success");
-        refreshData();
       } else {
         // Limpiar votos locales por voterId
         const updatedVotes = votes.filter(v => String(v.voterId || '').trim() !== String(voter.id).trim());
@@ -1054,18 +1188,19 @@ function getSheetData(sheet) {
   // Alternar la selección de todos los votantes visibles
   const handleToggleSelectAll = (allFilteredSelected) => {
     if (allFilteredSelected) {
-      const filteredIds = filteredVoters.map(v => v.id);
-      setSelectedVoterIds(selectedVoterIds.filter(id => !filteredIds.includes(id)));
+      const filteredIdsStr = new Set(filteredVoters.map(v => String(v.id)));
+      setSelectedVoterIds(selectedVoterIds.filter(id => !filteredIdsStr.has(String(id))));
     } else {
-      const filteredIds = filteredVoters.map(v => v.id);
-      const newSelected = Array.from(new Set([...selectedVoterIds, ...filteredIds]));
+      const filteredIdsStr = filteredVoters.map(v => String(v.id));
+      const newSelected = Array.from(new Set([...selectedVoterIds.map(id => String(id)), ...filteredIdsStr]));
       setSelectedVoterIds(newSelected);
     }
   };
 
   // Restablecer votos de múltiples votantes en lote (VOTO SECRETO)
   const handleBulkResetVotes = async () => {
-    const selectedVoters = voters.filter(v => selectedVoterIds.includes(v.id));
+    const selectedVoterIdsSet = new Set(selectedVoterIds.map(id => String(id)));
+    const selectedVoters = voters.filter(v => selectedVoterIdsSet.has(String(v.id)));
     if (selectedVoters.length === 0) return;
 
     if (!window.confirm(`¿Estás seguro de que deseas restablecer la participación de los ${selectedVoters.length} votantes seleccionados?`)) {
@@ -1080,8 +1215,18 @@ function getSheetData(sheet) {
         }
         const payloadList = selectedVoters.map(v => ({ voterId: v.id }));
         await resetMultipleVotersVotesInSheets(config.sheetUrlCandidates, payloadList);
+        
+        // Actualizar localmente
+        const targetIds = new Set(selectedVoters.map(v => String(v.id).trim()));
+        const updatedVoters = voters.map(v => 
+          targetIds.has(String(v.id).trim()) ? { ...v, hasVoted: false, votedAt: '' } : v
+        );
+        setVoters(updatedVoters);
+
+        const updatedVotes = votes.filter(v => !targetIds.has(String(v.voterId || '').trim()));
+        setVotes(updatedVotes);
+
         showToast(`Participación de ${selectedVoters.length} miembros restablecida en Google Sheets`, "success");
-        refreshData();
       } else {
         const targetIds = new Set(selectedVoters.map(v => String(v.id).trim()));
         // Limpiar votos locales por voterId
@@ -1108,7 +1253,7 @@ function getSheetData(sheet) {
 
   // Eliminar múltiples votantes en lote
   const handleBulkDeleteVoters = async () => {
-    const idsToDelete = new Set(selectedVoterIds);
+    const idsToDelete = new Set(selectedVoterIds.map(id => String(id)));
     if (idsToDelete.size === 0) return;
 
     if (!window.confirm(`¿Estás seguro de que deseas eliminar a los ${idsToDelete.size} votantes seleccionados del censo?`)) {
@@ -1116,15 +1261,15 @@ function getSheetData(sheet) {
     }
 
     setIsUploading(true);
-    const updatedVoters = voters.filter(v => !idsToDelete.has(v.id));
+    const updatedVoters = voters.filter(v => !idsToDelete.has(String(v.id)));
     try {
       if (config.sheetUrlVoters) {
         if (!isConnected) {
           throw new Error("No hay conexión con Google Sheets. No se pueden eliminar los votantes.");
         }
         await updateVotersInSheets(config.sheetUrlVoters, updatedVoters);
+        setVoters(updatedVoters);
         showToast(`${idsToDelete.size} votantes eliminados de Google Sheets`, "success");
-        refreshData();
       } else {
         setVoters(updatedVoters);
         safeSetLocalStorage('icc_local_voters', JSON.stringify(updatedVoters));
@@ -1565,13 +1710,13 @@ function getSheetData(sheet) {
     }
   };
 
-  // Reset de base de datos local
   const handleResetLocalData = () => {
     if (window.confirm("¿Deseas restaurar la base de datos local a los valores iniciales de prueba? Esto borrará tus cambios locales.")) {
       localStorage.removeItem('icc_local_candidates');
       localStorage.removeItem('icc_local_voters');
       localStorage.removeItem('icc_local_votes');
       localStorage.removeItem('icc_candidates_cleared_by_user');
+      localStorage.removeItem('icc_voter_attendance');
       refreshData();
       showToast("Datos locales restablecidos", "info");
     }
@@ -1697,18 +1842,72 @@ function getSheetData(sheet) {
     showToast("Enlace de votación copiado", "success");
   };
 
-  // Filtrar Votantes en lista considerando búsqueda y estado de participación (VOTO SECRETO)
+  // Calcular la prioridad/coincidencia de la búsqueda (empieza con -> contiene)
+  const getSearchScore = (fullName, query) => {
+    if (!query) return 0;
+    if (fullName.startsWith(query)) return 3;
+    const words = fullName.split(/\s+/);
+    if (words.some(w => w.startsWith(query))) return 2;
+    if (fullName.includes(query)) return 1;
+    return 0;
+  };
+
+  // Filtrar Votantes en lista considerando búsqueda, asistencia y progreso de votación (VOTO SECRETO)
   const filteredVoters = voters.filter(v => {
-    const fullName = `${v.name || ''} ${v.lastName || ''}`.trim().toLowerCase();
-    const matchesSearch = fullName.includes(voterSearch.toLowerCase());
+    const fullName = `${v.name || ''} ${v.lastName || ''}`.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const searchNormalized = voterSearch.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const matchesSearch = fullName.includes(searchNormalized);
     if (!matchesSearch) return false;
 
-    const progress = getVoterProgress(v);
+    // Filtro por Asistencia (Presencia)
+    if (voterPresenceFilter === 'present' && v.isPresent === false) return false;
+    if (voterPresenceFilter === 'absent' && v.isPresent !== false) return false;
 
-    if (voterStatusFilter === 'completed') return progress.isComplete;
-    if (voterStatusFilter === 'pending') return !progress.hasVoted;
-    if (voterStatusFilter === 'partial') return progress.hasVoted && !progress.isComplete;
-    return true; // 'all'
+    // Filtro por Progreso de Votación
+    const progress = getVoterProgress(v);
+    if (voterProgressFilter === 'completed' && !progress.isComplete) return false;
+    if (voterProgressFilter === 'pending' && progress.hasVoted) return false;
+    if (voterProgressFilter === 'partial' && (!progress.hasVoted || progress.isComplete)) return false;
+
+    return true;
+  });
+
+  // Ordenar Votantes filtrados según criterios seleccionados (Excel-like)
+  const sortedVoters = [...filteredVoters].sort((a, b) => {
+    // Si hay una búsqueda activa, priorizar palabras que empiecen con el término buscado
+    if (voterSearch.trim() !== '') {
+      const normA = `${a.name || ''} ${a.lastName || ''}`.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const normB = `${b.name || ''} ${b.lastName || ''}`.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const queryNorm = voterSearch.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+      const scoreA = getSearchScore(normA, queryNorm);
+      const scoreB = getSearchScore(normB, queryNorm);
+
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA; // Mayor relevancia primero
+      }
+    }
+
+    let valA = '';
+    let valB = '';
+
+    if (voterSortKey === 'name') {
+      valA = `${a.name || ''} ${a.lastName || ''}`.trim().toLowerCase();
+      valB = `${b.name || ''} ${b.lastName || ''}`.trim().toLowerCase();
+    } else if (voterSortKey === 'presence') {
+      valA = a.isPresent !== false ? 'present' : 'absent';
+      valB = b.isPresent !== false ? 'present' : 'absent';
+    } else if (voterSortKey === 'progress') {
+      const progA = getVoterProgress(a);
+      const progB = getVoterProgress(b);
+      // Orden: completes (2), partials (1), pending (0)
+      valA = progA.isComplete ? 2 : (progA.hasVoted ? 1 : 0);
+      valB = progB.isComplete ? 2 : (progB.hasVoted ? 1 : 0);
+    }
+
+    if (valA < valB) return voterSortDirection === 'asc' ? -1 : 1;
+    if (valA > valB) return voterSortDirection === 'asc' ? 1 : -1;
+    return 0;
   });
 
   // Desglose de votos para la tabla completa (VOTO SECRETO: sin nombre del votante)
@@ -1796,48 +1995,6 @@ function getSheetData(sheet) {
         <div>
           <div className="dashboard-header">
             <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, margin: 0 }}>Resultados de la Votación</h2>
-            <div className="dashboard-actions">
-              {votes.length > 0 && (
-                <>
-                  <Tooltip text="Exportar reporte detallado y gráfico de resultados a un archivo Excel." position="bottom">
-                    <button 
-                      type="button"
-                      className="btn btn-success"
-                      onClick={handleExportExcel}
-                      disabled={isExporting}
-                      style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      {isExporting ? (
-                        <>
-                          <div className="spinner-small" style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-                          <span>Exportando...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                          </svg>
-                          <span>Exportar a Excel</span>
-                        </>
-                      )}
-                    </button>
-                  </Tooltip>
-                  <Tooltip text="Eliminar permanentemente todos los votos de la base de datos." position="left">
-                    <button 
-                      type="button"
-                      className="btn btn-danger"
-                      onClick={handleClearAllVotes}
-                      disabled={isUploading}
-                      style={{ padding: '8px 16px', fontSize: '13px' }}
-                    >
-                      {isUploading ? 'Reiniciando...' : 'Reiniciar Votación (Limpiar Votos)'}
-                    </button>
-                  </Tooltip>
-                </>
-              )}
-            </div>
           </div>
 
           {/* Tarjetas de Estadísticas Globales */}
@@ -2176,6 +2333,46 @@ function getSheetData(sheet) {
 
           {/* Database actions panel at the bottom */}
           <div style={{ marginTop: '40px', paddingTop: '24px', borderTop: '1px solid var(--border)', display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            {votes.length > 0 && (
+              <>
+                <Tooltip text="Exportar reporte detallado y gráfico de resultados a un archivo Excel." position="top">
+                  <button 
+                    type="button"
+                    className="btn btn-success"
+                    onClick={handleExportExcel}
+                    disabled={isExporting}
+                    style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    {isExporting ? (
+                      <>
+                        <div className="spinner-small" style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                        <span>Exportando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        <span>Exportar a Excel</span>
+                      </>
+                    )}
+                  </button>
+                </Tooltip>
+                <Tooltip text="Eliminar permanentemente todos los votos de la base de datos." position="top">
+                  <button 
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={handleClearAllVotes}
+                    disabled={isUploading}
+                    style={{ padding: '8px 16px', fontSize: '13px' }}
+                  >
+                    {isUploading ? 'Reiniciando...' : 'Reiniciar Votación (Limpiar Votos)'}
+                  </button>
+                </Tooltip>
+              </>
+            )}
             <Tooltip text="Restaurar las listas de prueba por defecto en el almacenamiento local del navegador.">
               <button type="button" className="btn btn-secondary" style={{ fontSize: '13px' }} onClick={handleResetLocalData}>
                 Restablecer Datos Locales
@@ -2215,6 +2412,11 @@ function getSheetData(sheet) {
       {activeTab === 'candidates' && (
         <div>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: '20px' }}>Gestión de Candidatos</h2>
+          
+          <div style={{ padding: '12px 16px', backgroundColor: 'rgba(59, 130, 246, 0.05)', borderLeft: '4px solid var(--primary)', borderRadius: '0 var(--radius-md) var(--radius-md) 0', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center', animation: 'fadeIn 0.2s ease-out' }}>
+            <span style={{ fontSize: '16px' }}>ℹ️</span>
+            <span><strong>Nota de Sincronización:</strong> Si agregas, editas o eliminas candidatos, los votantes que tengan su pantalla abierta deberán <strong>actualizar/recargar</strong> su navegador para visualizar los cambios.</span>
+          </div>
           
           <form onSubmit={handleAddCandidate} className="card" style={{ marginBottom: '24px', border: '1px solid var(--border)' }}>
             <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '18px', marginBottom: '16px' }}>
@@ -2366,41 +2568,95 @@ function getSheetData(sheet) {
             <div>
               {candidates.map(cand => {
                 const fullName = `${cand.firstName || ''} ${cand.lastName || ''}`.trim();
+                const isExpanded = expandedCandidateId === cand.id;
                 return (
-                  <div key={cand.id} className="candidate-row-card">
-                    <div className="candidate-info">
-                      <CandidatePhoto
-                        photo={cand.photo}
-                        firstName={cand.firstName}
-                        lastName={cand.lastName}
-                        className="candidate-avatar"
-                      />
-                      <div>
-                        <div className="candidate-name">{fullName}</div>
-                        <div className="candidate-testimony-snippet">{cand.testimony}</div>
+                  <div 
+                    key={cand.id} 
+                    className={`candidate-row-card candidate-admin-item ${isExpanded ? 'expanded' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      console.log("Card clicked for candidate:", cand.id, "fullName:", fullName);
+                      setExpandedCandidateId(prev => prev === cand.id ? null : cand.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setExpandedCandidateId(prev => prev === cand.id ? null : cand.id);
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="candidate-row-content">
+                      <div className="candidate-info">
+                        <CandidatePhoto
+                          photo={cand.photo}
+                          firstName={cand.firstName}
+                          lastName={cand.lastName}
+                          className="candidate-avatar"
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="candidate-name">{fullName}</div>
+                          <div className="candidate-testimony-snippet-wrapper">
+                            <div className="candidate-testimony-snippet">{cand.testimony}</div>
+                          </div>
+                          <div className="candidate-testimony-full-wrapper">
+                            <div className="candidate-testimony-full">
+                              "{cand.testimony}"
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="candidate-actions-desktop">
+                        <Tooltip text="Modificar la información, foto o testimonio de este candidato.">
+                          <button 
+                            type="button"
+                            className="btn btn-secondary" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartEditCandidate(cand);
+                            }}
+                            style={{ padding: '6px 12px', fontSize: '12px' }}
+                          >
+                            Editar
+                          </button>
+                        </Tooltip>
+                        <Tooltip text="Dar de baja de forma permanente a este candidato de la votación.">
+                          <button 
+                            type="button"
+                            className="btn btn-danger" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCandidate(cand.id);
+                            }}
+                            style={{ padding: '6px 12px', fontSize: '12px' }}
+                          >
+                            Eliminar
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <Tooltip text="Modificar la información, foto o testimonio de este candidato.">
+                    <div className="candidate-actions-mobile-wrapper">
+                      <div className="candidate-actions-mobile" onClick={(e) => e.stopPropagation()}>
                         <button 
                           type="button"
                           className="btn btn-secondary" 
-                          onClick={() => handleStartEditCandidate(cand)}
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
+                          onClick={() => {
+                            handleStartEditCandidate(cand);
+                          }}
                         >
                           Editar
                         </button>
-                      </Tooltip>
-                      <Tooltip text="Dar de baja de forma permanente a este candidato de la votación.">
                         <button 
                           type="button"
                           className="btn btn-danger" 
-                          onClick={() => handleDeleteCandidate(cand.id)}
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
+                          onClick={() => {
+                            handleDeleteCandidate(cand.id);
+                          }}
                         >
                           Eliminar
                         </button>
-                      </Tooltip>
+                      </div>
                     </div>
                   </div>
                 );
@@ -2414,6 +2670,11 @@ function getSheetData(sheet) {
       {activeTab === 'voters' && (
         <div>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: '20px' }}>Gestión de Votantes Habilitados</h2>
+
+          <div style={{ padding: '12px 16px', backgroundColor: 'rgba(59, 130, 246, 0.05)', borderLeft: '4px solid var(--primary)', borderRadius: '0 var(--radius-md) var(--radius-md) 0', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center', animation: 'fadeIn 0.2s ease-out' }}>
+            <span style={{ fontSize: '16px' }}>ℹ️</span>
+            <span><strong>Nota de Sincronización:</strong> Si agregas votantes, cambias su asistencia o reinicias sus votos, los miembros que ya tengan la página abierta necesitarán <strong>actualizar/recargar</strong> su pantalla de votación para recibir los cambios.</span>
+          </div>
 
           <div className="grid-2" style={{ marginBottom: '24px' }}>
             {/* Agregar Individual */}
@@ -2475,73 +2736,70 @@ function getSheetData(sheet) {
               </Tooltip>
             </div>
 
-            {/* Buscador y Filtros Rápidos */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginBottom: '20px' }}>
-              <div style={{ flex: '1', minWidth: '200px' }}>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  placeholder="Buscar votante por nombre..."
-                  value={voterSearch}
-                  onChange={(e) => setVoterSearch(e.target.value)}
-                  style={{ margin: 0 }}
-                />
-              </div>
-              <div className="tabs-header" style={{ margin: 0, padding: '4px', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
-                <Tooltip text="Mostrar a todos los miembros autorizados sin filtros." position="top">
-                  <button 
-                    type="button" 
-                    className={`tab-btn ${voterStatusFilter === 'all' ? 'active' : ''}`}
-                    onClick={() => {
-                      setVoterStatusFilter('all');
-                      setSelectedVoterIds([]); // Limpiar selección al cambiar de filtro
-                    }}
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                  >
-                    Todos
-                  </button>
-                </Tooltip>
-                <Tooltip text="Mostrar solo a los miembros que no han emitido ningún voto." position="top">
-                  <button 
-                    type="button" 
-                    className={`tab-btn ${voterStatusFilter === 'pending' ? 'active' : ''}`}
-                    onClick={() => {
-                      setVoterStatusFilter('pending');
-                      setSelectedVoterIds([]);
-                    }}
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                  >
-                    Sin Votar
-                  </button>
-                </Tooltip>
-                <Tooltip text="Mostrar a los miembros que han votado a algunos candidatos pero no a todos." position="top">
-                  <button 
-                    type="button" 
-                    className={`tab-btn ${voterStatusFilter === 'partial' ? 'active' : ''}`}
-                    onClick={() => {
-                      setVoterStatusFilter('partial');
-                      setSelectedVoterIds([]);
-                    }}
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                  >
-                    Parcial
-                  </button>
-                </Tooltip>
-                <Tooltip text="Mostrar solo a los miembros que ya han completado todos sus votos." position="top">
-                  <button 
-                    type="button" 
-                    className={`tab-btn ${voterStatusFilter === 'completed' ? 'active' : ''}`}
-                    onClick={() => {
-                      setVoterStatusFilter('completed');
-                      setSelectedVoterIds([]);
-                    }}
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                  >
-                    Ya Votó
-                  </button>
-                </Tooltip>
-              </div>
+            {/* Buscador de Votantes Global (Fuera del contenedor scroll) */}
+            <div style={{ marginBottom: '16px', position: 'relative' }}>
+              <input 
+                type="text" 
+                className="form-control" 
+                placeholder="🔍 Buscar votante por nombre o apellido..."
+                value={voterSearch}
+                onChange={(e) => setVoterSearch(e.target.value)}
+                style={{ 
+                  margin: 0, 
+                  height: '42px', 
+                  fontSize: '14px', 
+                  padding: '8px 12px 8px 38px', 
+                  borderRadius: 'var(--radius-md)', 
+                  border: '1px solid var(--border)',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+              />
+              {voterSearch && (
+                <button 
+                  type="button"
+                  onClick={() => setVoterSearch('')}
+                  style={{ 
+                    position: 'absolute', 
+                    right: '12px', 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    border: 'none', 
+                    background: 'none', 
+                    fontSize: '18px', 
+                    color: 'var(--text-muted)', 
+                    cursor: 'pointer',
+                    padding: '4px'
+                  }}
+                >
+                  ×
+                </button>
+              )}
             </div>
+
+
+
+            {/* Filtros Activos e Informativos (Excel-like) */}
+            {(voterSearch || voterPresenceFilter !== 'all' || voterProgressFilter !== 'all') && (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', animation: 'fadeIn 0.2s ease-out' }}>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)' }}>Filtros aplicados:</span>
+                {voterSearch && <span className="badge badge-info" style={{ fontSize: '11px', padding: '4px 8px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)' }}>Nombre: "{voterSearch}"</span>}
+                {voterPresenceFilter !== 'all' && <span className="badge badge-info" style={{ fontSize: '11px', padding: '4px 8px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)' }}>Asistencia: {voterPresenceFilter === 'present' ? 'Presentes' : 'Ausentes'}</span>}
+                {voterProgressFilter !== 'all' && <span className="badge badge-info" style={{ fontSize: '11px', padding: '4px 8px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)' }}>Estado: {voterProgressFilter === 'pending' ? 'Sin Votar' : voterProgressFilter === 'partial' ? 'Parcial' : 'Ya Votó'}</span>}
+                <button 
+                  type="button" 
+                  className="btn-link" 
+                  onClick={() => {
+                    setVoterSearch('');
+                    setVoterPresenceFilter('all');
+                    setVoterProgressFilter('all');
+                  }}
+                  style={{ fontSize: '12px', color: 'var(--danger)', cursor: 'pointer', background: 'none', border: 'none', textDecoration: 'underline', padding: 0 }}
+                >
+                  Limpiar todos los filtros
+                </button>
+              </div>
+            )}
 
             {/* Barra de Acciones Masivas */}
             {selectedVoterIds.length > 0 && (
@@ -2559,6 +2817,28 @@ function getSheetData(sheet) {
                       style={{ padding: '6px 12px', fontSize: '12px', border: '1px solid var(--border)' }}
                     >
                       Restablecer Votos
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Marcar como presentes (habilitar para votar) a todos los seleccionados.">
+                    <button 
+                      type="button" 
+                      className="btn btn-secondary" 
+                      onClick={() => handleBulkTogglePresence(true)}
+                      disabled={isUploading}
+                      style={{ padding: '6px 12px', fontSize: '12px', border: '1px solid var(--border)', borderColor: 'var(--success)', color: 'var(--success)' }}
+                    >
+                      Marcar Presentes
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Marcar como ausentes (deshabilitar para votar) a todos los seleccionados.">
+                    <button 
+                      type="button" 
+                      className="btn btn-secondary" 
+                      onClick={() => handleBulkTogglePresence(false)}
+                      disabled={isUploading}
+                      style={{ padding: '6px 12px', fontSize: '12px', border: '1px solid var(--border)', borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                    >
+                      Marcar Ausentes
                     </button>
                   </Tooltip>
                   <Tooltip text="Quitar permanentemente a los miembros seleccionados del censo de votación.">
@@ -2586,101 +2866,298 @@ function getSheetData(sheet) {
               </div>
             )}
 
-            {/* Fila de Selección Maestra */}
-            {filteredVoters.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', backgroundColor: 'var(--bg-input)', border: '1px solid var(--border)', borderBottom: 'none', borderRadius: 'var(--radius-md) var(--radius-md) 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                <input 
-                  type="checkbox" 
-                  checked={filteredVoters.length > 0 && filteredVoters.every(v => selectedVoterIds.includes(v.id))}
-                  onChange={() => handleToggleSelectAll(filteredVoters.length > 0 && filteredVoters.every(v => selectedVoterIds.includes(v.id)))}
-                  style={{ cursor: 'pointer', width: '16px', height: '16px' }}
-                />
-                <span style={{ fontWeight: '600' }}>Seleccionar todos los de esta lista ({filteredVoters.length})</span>
-              </div>
-            )}
-
             {filteredVoters.length === 0 ? (
               <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', margin: 0 }}>No se encontraron votantes.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', padding: '4px', border: '1px solid var(--border)', borderTop: 'none', borderRadius: '0 0 var(--radius-md) var(--radius-md)' }}>
-                {filteredVoters.map((voter, index) => {
-                  const progress = getVoterProgress(voter);
-                  const isChecked = selectedVoterIds.includes(voter.id);
-                  return (
-                    <div key={voter.id || index} className="candidate-row-card" style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: 0, border: 'none', borderBottom: index < filteredVoters.length - 1 ? '1px solid var(--border)' : 'none', borderRadius: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div className="votos-table-container" style={{ margin: 0, maxHeight: '450px', minHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                <table className="votos-table" style={{ margin: 0 }}>
+                  <thead>
+                    <tr style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-card)' }}>
+                      <th style={{ width: '40px', padding: '12px 16px' }}>
                         <input 
                           type="checkbox" 
-                          checked={isChecked} 
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedVoterIds([...selectedVoterIds, voter.id]);
-                            } else {
-                              setSelectedVoterIds(selectedVoterIds.filter(id => id !== voter.id));
-                            }
-                          }}
+                          checked={filteredVoters.length > 0 && filteredVoters.every(v => selectedVoterIds.some(id => String(id) === String(v.id)))}
+                          onChange={() => handleToggleSelectAll(filteredVoters.length > 0 && filteredVoters.every(v => selectedVoterIds.some(id => String(id) === String(v.id))))}
                           style={{ cursor: 'pointer', width: '16px', height: '16px' }}
                         />
-                        <div style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
-                          backgroundColor: 'var(--primary-light)',
-                          color: 'var(--primary)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 'bold',
-                          fontSize: '12px'
-                        }}>
-                          {voter.name?.charAt(0)}{voter.lastName?.charAt(0)}
-                        </div>
-                        <div className="candidate-name" style={{ fontSize: '15px' }}>{voter.name} {voter.lastName}</div>
-                      </div>
+                      </th>
                       
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        {/* Estado del Voto */}
-                        {progress.isComplete ? (
-                          <span className="badge badge-success">Ya Votó</span>
-                        ) : progress.hasVoted ? (
-                          <Tooltip text={progress.pendingCandidates.length > 0 ? `Pendientes por votar:\n${progress.pendingCandidates.map(c => `• ${c.firstName} ${c.lastName}`).join('\n')}` : 'No hay candidatos pendientes'} position="left">
-                            <span className="badge badge-info" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)', cursor: 'help' }}>Parcial ({progress.votedCount}/{progress.totalCount})</span>
-                          </Tooltip>
-                        ) : (
-                          <Tooltip text={progress.pendingCandidates.length > 0 ? `Pendientes por votar:\n${progress.pendingCandidates.map(c => `• ${c.firstName} ${c.lastName}`).join('\n')}` : 'No hay candidatos pendientes'} position="left">
-                            <span className="badge badge-danger" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', cursor: 'help' }}>Sin Votación</span>
-                          </Tooltip>
-                        )}
-
-                        {/* Botón Restaurar */}
-                        {progress.hasVoted && (
-                          <Tooltip text="Borrar los votos de este miembro para permitirle votar de nuevo.">
+                      {/* Columna Nombre */}
+                      <th style={{ padding: '12px 16px', position: 'relative' }}>
+                        <div 
+                          className="excel-filter-trigger"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => setActiveHeaderFilter(activeHeaderFilter === 'name' ? null : 'name')}
+                        >
+                          <span>Nombre y Apellido</span>
+                          <span style={{ fontSize: '11px', color: voterSearch || voterSortKey === 'name' ? 'var(--primary)' : 'var(--text-muted)' }}>
+                            {voterSortKey === 'name' ? (voterSortDirection === 'asc' ? '▲' : '▼') : '⛛'}
+                          </span>
+                        </div>
+                        {activeHeaderFilter === 'name' && (
+                          <div className="excel-filter-dropdown" style={{ position: 'absolute', top: '100%', left: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '10px', zIndex: 999, width: '180px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
                             <button 
                               type="button"
-                              className="btn btn-secondary" 
-                              onClick={() => handleResetVoterVotes(voter)}
-                              style={{ padding: '4px 10px', fontSize: '11px', height: '28px', display: 'flex', alignItems: 'center', border: '1px solid var(--border)' }}
+                              className="btn btn-secondary"
+                              onClick={() => {
+                                setVoterSortKey('name');
+                                setVoterSortDirection('asc');
+                                setActiveHeaderFilter(null);
+                              }}
+                              style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 12px', fontSize: '13px', height: '32px' }}
                             >
-                              Restablecer
+                              🔼 Ordenar A → Z
                             </button>
-                          </Tooltip>
+                            <button 
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => {
+                                setVoterSortKey('name');
+                                setVoterSortDirection('desc');
+                                setActiveHeaderFilter(null);
+                              }}
+                              style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 12px', fontSize: '13px', height: '32px' }}
+                            >
+                              🔽 Ordenar Z → A
+                            </button>
+                          </div>
                         )}
+                      </th>
 
-                        {/* Botón Eliminar */}
-                        <Tooltip text="Retirar a este miembro de la lista de votantes autorizados.">
-                          <button 
-                            type="button" 
-                            className="btn btn-danger"
-                            onClick={() => handleDeleteVoter(voter.id)}
-                            style={{ padding: '4px 8px', fontSize: '12px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          >
-                            Eliminar
-                          </button>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  );
-                })}
+                      {/* Columna Asistencia */}
+                      <th style={{ padding: '12px 16px', position: 'relative' }}>
+                        <div 
+                          className="excel-filter-trigger"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => setActiveHeaderFilter(activeHeaderFilter === 'presence' ? null : 'presence')}
+                        >
+                          <span>Asistencia</span>
+                          <span style={{ fontSize: '11px', color: voterPresenceFilter !== 'all' || voterSortKey === 'presence' ? 'var(--primary)' : 'var(--text-muted)' }}>
+                            {voterSortKey === 'presence' ? (voterSortDirection === 'asc' ? '▲' : '▼') : '⛛'}
+                          </span>
+                        </div>
+                        {activeHeaderFilter === 'presence' && (
+                          <div className="excel-filter-dropdown" style={{ position: 'absolute', top: '100%', left: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px', zIndex: 999, width: '200px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
+                            <button 
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => {
+                                setVoterSortKey('presence');
+                                setVoterSortDirection('asc');
+                                setActiveHeaderFilter(null);
+                              }}
+                              style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 12px', fontSize: '13px', height: '32px' }}
+                            >
+                              📈 Presentes primero
+                            </button>
+                            <button 
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => {
+                                setVoterSortKey('presence');
+                                setVoterSortDirection('desc');
+                                setActiveHeaderFilter(null);
+                              }}
+                              style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 12px', fontSize: '13px', height: '32px' }}
+                            >
+                              📉 Ausentes primero
+                            </button>
+                            <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block' }}>Filtrar valor:</label>
+                              {[
+                                { value: 'all', label: 'Todos' },
+                                { value: 'present', label: 'Presentes' },
+                                { value: 'absent', label: 'Ausentes' }
+                              ].map(opt => (
+                                <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', margin: 0, fontWeight: 'normal', color: 'var(--text-primary)' }}>
+                                  <input 
+                                    type="radio" 
+                                    name="presenceFilterOpt" 
+                                    checked={voterPresenceFilter === opt.value}
+                                    onChange={() => {
+                                      setVoterPresenceFilter(opt.value);
+                                      setSelectedVoterIds([]);
+                                    }}
+                                    style={{ cursor: 'pointer', width: '14px', height: '14px', margin: 0 }}
+                                  />
+                                  <span>{opt.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </th>
+
+                      {/* Columna Progreso */}
+                      <th style={{ padding: '12px 16px', position: 'relative' }}>
+                        <div 
+                          className="excel-filter-trigger"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => setActiveHeaderFilter(activeHeaderFilter === 'progress' ? null : 'progress')}
+                        >
+                          <span>Progreso de Votación</span>
+                          <span style={{ fontSize: '11px', color: voterProgressFilter !== 'all' || voterSortKey === 'progress' ? 'var(--primary)' : 'var(--text-muted)' }}>
+                            {voterSortKey === 'progress' ? (voterSortDirection === 'asc' ? '▲' : '▼') : '⛛'}
+                          </span>
+                        </div>
+                        {activeHeaderFilter === 'progress' && (
+                          <div className="excel-filter-dropdown" style={{ position: 'absolute', top: '100%', left: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px', zIndex: 999, width: '220px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
+                            <button 
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => {
+                                setVoterSortKey('progress');
+                                setVoterSortDirection('asc');
+                                setActiveHeaderFilter(null);
+                              }}
+                              style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 12px', fontSize: '13px', height: '32px' }}
+                            >
+                              📈 Completos primero
+                            </button>
+                            <button 
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => {
+                                setVoterSortKey('progress');
+                                setVoterSortDirection('desc');
+                                setActiveHeaderFilter(null);
+                              }}
+                              style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 12px', fontSize: '13px', height: '32px' }}
+                            >
+                              📉 Pendientes primero
+                            </button>
+                            <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block' }}>Filtrar valor:</label>
+                              {[
+                                { value: 'all', label: 'Todos' },
+                                { value: 'pending', label: 'Sin Votar' },
+                                { value: 'partial', label: 'Parcial' },
+                                { value: 'completed', label: 'Ya Votó' }
+                              ].map(opt => (
+                                <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', margin: 0, fontWeight: 'normal', color: 'var(--text-primary)' }}>
+                                  <input 
+                                    type="radio" 
+                                    name="progressFilterOpt" 
+                                    checked={voterProgressFilter === opt.value}
+                                    onChange={() => {
+                                      setVoterProgressFilter(opt.value);
+                                      setSelectedVoterIds([]);
+                                    }}
+                                    style={{ cursor: 'pointer', width: '14px', height: '14px', margin: 0 }}
+                                  />
+                                  <span>{opt.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </th>
+                      
+                      <th style={{ padding: '12px 16px' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedVoters.map((voter, index) => {
+                      const progress = getVoterProgress(voter);
+                      const isChecked = selectedVoterIds.some(id => String(id) === String(voter.id));
+                      return (
+                        <tr key={`${voter.id || 'voter'}-${index}`}>
+                          <td data-label="Seleccionar" style={{ padding: '10px 16px' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked} 
+                              onChange={(e) => {
+                                const voterIdStr = String(voter.id);
+                                if (e.target.checked) {
+                                  setSelectedVoterIds([...selectedVoterIds.map(id => String(id)), voterIdStr]);
+                                } else {
+                                  setSelectedVoterIds(selectedVoterIds.filter(id => String(id) !== voterIdStr));
+                                }
+                              }}
+                              style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                            />
+                          </td>
+                          <td data-label="Nombre y Apellido" style={{ padding: '10px 16px', fontWeight: 600 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                backgroundColor: 'var(--primary-light)',
+                                color: 'var(--primary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 'bold',
+                                fontSize: '11px',
+                                flexShrink: 0
+                              }}>
+                                {voter.name?.charAt(0)}{voter.lastName?.charAt(0)}
+                              </div>
+                              <span>{voter.name} {voter.lastName}</span>
+                            </div>
+                          </td>
+                          <td data-label="Asistencia" style={{ padding: '10px 16px' }}>
+                            <Tooltip text={voter.isPresent !== false ? "Marcar como ausente (no podrá votar)" : "Marcar como presente (habilitar para votar)"} position="top">
+                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', fontSize: '13px', margin: 0 }}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={voter.isPresent !== false}
+                                  onChange={(e) => handleToggleVoterPresence(voter, e.target.checked)}
+                                  style={{ cursor: 'pointer', width: '15px', height: '15px', margin: 0 }}
+                                />
+                                <span style={{ color: voter.isPresent !== false ? 'var(--success)' : 'var(--text-muted)', fontWeight: voter.isPresent !== false ? '600' : 'normal' }}>
+                                  {voter.isPresent !== false ? 'Presente' : 'Ausente'}
+                                </span>
+                              </label>
+                            </Tooltip>
+                          </td>
+                          <td data-label="Estado Votación" style={{ padding: '10px 16px' }}>
+                            {progress.isComplete ? (
+                              <span className="badge badge-success">Ya Votó</span>
+                            ) : progress.hasVoted ? (
+                              <Tooltip text={progress.pendingCandidates.length > 0 ? `Pendientes por votar:\n${progress.pendingCandidates.map(c => `• ${c.firstName} ${c.lastName}`).join('\n')}` : 'No hay candidatos pendientes'} position="left">
+                                <span className="badge badge-info" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)', cursor: 'help' }}>Parcial ({progress.votedCount}/{progress.totalCount})</span>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip text={progress.pendingCandidates.length > 0 ? `Pendientes por votar:\n${progress.pendingCandidates.map(c => `• ${c.firstName} ${c.lastName}`).join('\n')}` : 'No hay candidatos pendientes'} position="left">
+                                <span className="badge badge-danger" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', cursor: 'help' }}>Sin Votación</span>
+                              </Tooltip>
+                            )}
+                          </td>
+                          <td data-label="Acciones" style={{ padding: '10px 16px' }}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              {progress.hasVoted && (
+                                <Tooltip text="Borrar los votos de este miembro para permitirle votar de nuevo.">
+                                  <button 
+                                    type="button"
+                                    className="btn btn-secondary" 
+                                    onClick={() => handleResetVoterVotes(voter)}
+                                    style={{ padding: '4px 10px', fontSize: '11px', height: '28px', display: 'flex', alignItems: 'center', border: '1px solid var(--border)' }}
+                                  >
+                                    Restablecer
+                                  </button>
+                                </Tooltip>
+                              )}
+                              <Tooltip text="Retirar a este miembro de la lista de votantes autorizados.">
+                                <button 
+                                  type="button" 
+                                  className="btn btn-danger"
+                                  onClick={() => handleDeleteVoter(voter.id)}
+                                  style={{ padding: '4px 8px', fontSize: '12px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                  Eliminar
+                                </button>
+                              </Tooltip>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

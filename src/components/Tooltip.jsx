@@ -11,9 +11,12 @@ import { useState, useRef, useEffect } from 'react';
 export default function Tooltip({ text, children, position = 'top', style }) {
   const [isVisible, setIsVisible] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const [hShift, setHShift] = useState(0);
+  const [activePosition, setActivePosition] = useState(position);
   const containerRef = useRef(null);
   const hoverTimeout = useRef(null);
   const touchTimeout = useRef(null);
+  const touchStartPos = useRef({ x: 0, y: 0 });
   const isLongPress = useRef(false);
 
   // Si no hay texto para describir, renderizar los hijos tal cual
@@ -24,22 +27,55 @@ export default function Tooltip({ text, children, position = 'top', style }) {
       const rect = containerRef.current.getBoundingClientRect();
       let top = 0;
       let left = 0;
+      let shift = 0;
       
-      if (position === 'top') {
+      const centerX = rect.left + rect.width / 2;
+      
+      const isMobile = window.innerWidth <= 768;
+      // En móvil, preferimos siempre 'top' para evitar la obstrucción del dedo,
+      // a menos que el elemento esté tan arriba en la pantalla que el tooltip se saldría del viewport (espacio < 80px).
+      let effectivePosition = position;
+      if (isMobile) {
+        effectivePosition = rect.top < 80 ? 'bottom' : 'top';
+      }
+      
+      if (effectivePosition === 'top' || effectivePosition === 'bottom') {
+        const bubbleWidth = 220; // Ancho máximo aproximado del tooltip
+        const minLeft = 12;
+        const maxRight = window.innerWidth - 12;
+        const isRightHalf = centerX > window.innerWidth / 2;
+        
+        // Desplazamiento base de 45px hacia el lado opuesto al borde más cercano
+        const baseShift = isRightHalf ? -45 : 45;
+        let newCenterX = centerX + baseShift;
+        
+        // Mantener dentro de los límites de la pantalla
+        if (newCenterX - bubbleWidth / 2 < minLeft) {
+          newCenterX = minLeft + bubbleWidth / 2;
+        } else if (newCenterX + bubbleWidth / 2 > maxRight) {
+          newCenterX = maxRight - bubbleWidth / 2;
+        }
+        
+        shift = newCenterX - centerX;
+      }
+      
+      if (effectivePosition === 'top') {
         top = rect.top;
-        left = rect.left + rect.width / 2;
-      } else if (position === 'bottom') {
+        left = centerX;
+      } else if (effectivePosition === 'bottom') {
         top = rect.bottom;
-        left = rect.left + rect.width / 2;
-      } else if (position === 'left') {
+        left = centerX;
+      } else if (effectivePosition === 'left') {
         top = rect.top + rect.height / 2;
         left = rect.left;
-      } else if (position === 'right') {
+      } else if (effectivePosition === 'right') {
         top = rect.top + rect.height / 2;
         left = rect.right;
       }
       
       setCoords({ top, left });
+      setHShift(shift);
+      setActivePosition(effectivePosition);
     }
     setIsVisible(true);
   };
@@ -63,7 +99,9 @@ export default function Tooltip({ text, children, position = 'top', style }) {
   };
 
   // --- Manejo en Dispositivos Táctiles (Touch) ---
-  const handleTouchStart = () => {
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    touchStartPos.current = { x: touch.clientX, y: touch.clientY };
     isLongPress.current = false;
     if (touchTimeout.current) clearTimeout(touchTimeout.current);
     touchTimeout.current = setTimeout(() => {
@@ -73,7 +111,7 @@ export default function Tooltip({ text, children, position = 'top', style }) {
       if (navigator.vibrate) {
         navigator.vibrate(40);
       }
-    }, 800); // 800ms manteniendo presionado para activar la descripción
+    }, 500); // 500ms es el estándar para pulsación larga
   };
 
   const handleTouchEnd = (e) => {
@@ -86,9 +124,15 @@ export default function Tooltip({ text, children, position = 'top', style }) {
     hideTooltip();
   };
 
-  const handleTouchMove = () => {
-    // Si el usuario desliza el dedo, asumimos scroll o cancelación del gesto
-    hideTooltip();
+  const handleTouchMove = (e) => {
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartPos.current.x;
+    const dy = touch.clientY - touchStartPos.current.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    // Permitir un margen de movimiento (10px) para evitar cancelaciones por vibración natural del dedo
+    if (distance > 10) {
+      hideTooltip();
+    }
   };
 
   // Ocultar el tooltip al hacer scroll en cualquier parte para evitar desprendimiento
@@ -101,12 +145,10 @@ export default function Tooltip({ text, children, position = 'top', style }) {
     
     window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('wheel', handleScroll, { passive: true });
-    window.addEventListener('touchmove', handleScroll, { passive: true });
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('wheel', handleScroll);
-      window.removeEventListener('touchmove', handleScroll);
     };
   }, [isVisible]);
 
@@ -133,17 +175,18 @@ export default function Tooltip({ text, children, position = 'top', style }) {
       {children}
       {isVisible && (
         <div 
-          className={`tooltip-bubble tooltip-${position}`}
+          className={`tooltip-bubble tooltip-${activePosition}`}
           style={{
             position: 'fixed',
             top: `${coords.top}px`,
             left: `${coords.left}px`,
             bottom: 'auto',
             right: 'auto',
+            '--h-shift': `${hShift}px`,
             transform: 
-              position === 'top' ? 'translate(-50%, -100%) translate(0, -8px)' :
-              position === 'bottom' ? 'translate(-50%, 8px)' :
-              position === 'left' ? 'translate(-100%, -50%) translate(-8px, 0)' :
+              activePosition === 'top' ? 'translate(calc(-50% + var(--h-shift, 0px)), -100%) translate(0, -8px)' :
+              activePosition === 'bottom' ? 'translate(calc(-50% + var(--h-shift, 0px)), 8px)' :
+              activePosition === 'left' ? 'translate(-100%, -50%) translate(-8px, 0)' :
               'translate(8px, -50%)'
           }}
         >

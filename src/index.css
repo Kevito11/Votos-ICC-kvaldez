@@ -517,6 +517,62 @@ textarea.form-control {
   text-overflow: ellipsis;
 }
 
+.candidate-testimony-full {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-line;
+  font-style: italic;
+  margin-top: 6px;
+  border-left: 2px solid var(--primary-light);
+  padding-left: 8px;
+  max-width: 500px;
+}
+
+.candidate-admin-item.expanded .candidate-info {
+  align-items: flex-start;
+}
+
+/* Testimony snippet and full wrappers */
+.candidate-testimony-snippet-wrapper {
+  max-height: 20px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+
+.candidate-admin-item.expanded .candidate-testimony-snippet-wrapper {
+  max-height: 0;
+  opacity: 0;
+  margin: 0;
+}
+
+.candidate-testimony-full-wrapper {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+}
+
+.candidate-admin-item.expanded .candidate-testimony-full-wrapper {
+  max-height: 350px; /* large enough for any testimony */
+  opacity: 1;
+}
+
+/* Mobile actions wrapper */
+.candidate-actions-mobile-wrapper {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  width: 100%;
+}
+
+.candidate-admin-item.expanded .candidate-actions-mobile-wrapper {
+  max-height: 100px;
+  opacity: 1;
+}
+
 /* Statistical cards */
 .stat-card {
   text-align: center;
@@ -1063,14 +1119,21 @@ textarea.form-control {
 .tooltip-top {
   bottom: 100%;
   left: 50%;
-  transform: translate(-50%, -8px);
+  transform: translate(calc(-50% + var(--h-shift, 0px)), calc(-100% - 8px));
   animation: tooltip-top-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (max-width: 768px) {
+  .tooltip-top {
+    transform: translate(calc(-50% + var(--h-shift, 0px)), calc(-100% - 40px));
+    animation: tooltip-top-in-mobile 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
 }
 
 .tooltip-top .tooltip-arrow {
   top: 100%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% - var(--h-shift, 0px)));
   border-width: 6px 6px 0 6px;
   border-color: #0f172a transparent transparent transparent;
 }
@@ -1085,14 +1148,21 @@ textarea.form-control {
 .tooltip-bottom {
   top: 100%;
   left: 50%;
-  transform: translate(-50%, 8px);
+  transform: translate(calc(-50% + var(--h-shift, 0px)), 8px);
   animation: tooltip-bottom-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (max-width: 768px) {
+  .tooltip-bottom {
+    transform: translate(calc(-50% + var(--h-shift, 0px)), 40px);
+    animation: tooltip-bottom-in-mobile 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
 }
 
 .tooltip-bottom .tooltip-arrow {
   bottom: 100%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% - var(--h-shift, 0px)));
   border-width: 0 6px 6px 6px;
   border-color: transparent transparent #0f172a transparent;
 }
@@ -1107,8 +1177,15 @@ textarea.form-control {
 .tooltip-left {
   right: 100%;
   top: 50%;
-  transform: translate(-8px, -50%);
+  transform: translate(calc(-100% - 8px), -50%);
   animation: tooltip-left-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (max-width: 768px) {
+  .tooltip-left {
+    transform: translate(calc(-100% - 40px), -50%);
+    animation: tooltip-left-in-mobile 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
 }
 
 .tooltip-left .tooltip-arrow {
@@ -1147,37 +1224,37 @@ textarea.form-control {
   }
 }
 
-/* Keyframe Animations */
+/* Keyframe Animations (Escritorio) */
 @keyframes tooltip-top-in {
   from {
     opacity: 0;
-    transform: translate(-50%, -2px) scale(0.95);
+    transform: translate(calc(-50% + var(--h-shift, 0px)), calc(-100% - 2px)) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -8px) scale(1);
+    transform: translate(calc(-50% + var(--h-shift, 0px)), calc(-100% - 8px)) scale(1);
   }
 }
 
 @keyframes tooltip-bottom-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 2px) scale(0.95);
+    transform: translate(calc(-50% + var(--h-shift, 0px)), 2px) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 8px) scale(1);
+    transform: translate(calc(-50% + var(--h-shift, 0px)), 8px) scale(1);
   }
 }
 
 @keyframes tooltip-left-in {
   from {
     opacity: 0;
-    transform: translate(-2px, -50%) scale(0.95);
+    transform: translate(calc(-100% - 2px), -50%) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translate(-8px, -50%) scale(1);
+    transform: translate(calc(-100% - 8px), -50%) scale(1);
   }
 }
 
@@ -1189,6 +1266,40 @@ textarea.form-control {
   to {
     opacity: 1;
     transform: translate(8px, -50%) scale(1);
+  }
+}
+
+/* Keyframe Animations (Móvil) */
+@keyframes tooltip-top-in-mobile {
+  from {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--h-shift, 0px)), calc(-100% - 34px)) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--h-shift, 0px)), calc(-100% - 40px)) scale(1);
+  }
+}
+
+@keyframes tooltip-bottom-in-mobile {
+  from {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--h-shift, 0px)), 34px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--h-shift, 0px)), 40px) scale(1);
+  }
+}
+
+@keyframes tooltip-left-in-mobile {
+  from {
+    opacity: 0;
+    transform: translate(calc(-100% - 34px), -50%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(calc(-100% - 40px), -50%) scale(1);
   }
 }
 
@@ -1226,6 +1337,21 @@ textarea.form-control {
   font-size: 13px;
   font-weight: 600;
   margin-top: 4px;
+}
+
+/* Dashboard / Results Header & Actions */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+
+.dashboard-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* Responsive Tables for Mobile */
@@ -1271,6 +1397,39 @@ textarea.form-control {
     color: var(--text-secondary);
     text-align: left;
     margin-right: 12px;
+  }
+}
+
+/* Candidate Admin Card Layout */
+.candidate-row-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.candidate-actions-desktop {
+  display: flex;
+  gap: 8px;
+}
+
+.candidate-actions-mobile {
+  display: none;
+}
+
+.candidate-admin-item {
+  transition: all var(--transition-normal);
+}
+
+.candidate-admin-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Disable pointer events on inner info items on mobile to let clicks bubble straight to the card button container */
+@media (max-width: 768px) {
+  .candidate-admin-item .candidate-info * {
+    pointer-events: none;
   }
 }
 
@@ -1346,12 +1505,56 @@ textarea.form-control {
     gap: 8px !important;
   }
 
+  .dashboard-actions .tooltip-container {
+    flex: 1 1 calc(50% - 4px) !important;
+    display: flex !important;
+    width: 100% !important;
+  }
+
   .dashboard-actions button,
   .dashboard-actions a {
-    flex: 1 1 calc(50% - 4px) !important;
-    min-width: 120px !important;
+    width: 100% !important;
     justify-content: center !important;
     padding: 10px 8px !important;
     font-size: 12px !important;
+  }
+
+  /* Mobile Candidates Panel spacing/hide adjustments */
+  .candidate-admin-item {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    cursor: pointer;
+  }
+  
+  .candidate-admin-item:hover {
+    background-color: var(--primary-light) !important;
+  }
+  
+  .candidate-admin-item.expanded {
+    border-color: var(--primary) !important;
+    background-color: var(--primary-light) !important;
+  }
+
+  .candidate-testimony-snippet {
+    display: none !important;
+  }
+
+  .candidate-actions-desktop {
+    display: none !important;
+  }
+
+  .candidate-actions-mobile {
+    display: flex !important;
+    width: 100% !important;
+    gap: 12px !important;
+    margin-top: 12px !important;
+    padding-top: 12px !important;
+    border-top: 1px solid var(--border) !important;
+  }
+
+  .candidate-actions-mobile button {
+    flex: 1 !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
   }
 }

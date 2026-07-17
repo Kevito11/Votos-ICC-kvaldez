@@ -173,26 +173,55 @@ function App() {
             votesData = v2;
           }
 
+          // Leer asistencias locales guardadas como fallback
+          let localAttendance = {};
+          try {
+            const stored = localStorage.getItem('icc_voter_attendance');
+            if (stored) localAttendance = JSON.parse(stored);
+          } catch (e) {
+            console.error("Error reading icc_voter_attendance from localStorage:", e);
+          }
+
           // Mapear votantes a objeto { id, name, lastName }
           const mappedVoters = (votersData.voters || []).map((v, index) => {
+            let id = '';
+            let name = '';
+            let lastName = '';
+            let hasVoted = false;
+            let votedAt = '';
+            let isPresentFromSheet = undefined;
+
             if (v && typeof v === 'object') {
-              return {
-                id: v.id || v.ID || v.Id || `voter-${index + 1}`,
-                name: v.name || v.Nombre || v.nombre || '',
-                lastName: v.lastName || v.Apellido || v.apellido || '',
-                // Campos de participación (voto secreto)
-                hasVoted: v.hasVoted === true || v.hasVoted === 'TRUE' || v.hasVoted === 'true' || v.Votó === 'TRUE' || v.Votó === true || false,
-                votedAt: v.votedAt || v.FechaVoto || ''
-              };
+              id = v.id || v.ID || v.Id || `voter-${index + 1}`;
+              name = v.name || v.Nombre || v.nombre || '';
+              lastName = v.lastName || v.Apellido || v.apellido || '';
+              hasVoted = v.hasVoted === true || v.hasVoted === 'TRUE' || v.hasVoted === 'true' || v.Votó === 'TRUE' || v.Votó === true || false;
+              votedAt = v.votedAt || v.FechaVoto || '';
+              if (v.isPresent !== undefined) isPresentFromSheet = (v.isPresent === true || v.isPresent === 'TRUE' || v.isPresent === 'true');
+              if (v.Presente !== undefined) isPresentFromSheet = (v.Presente === true || v.Presente === 'TRUE' || v.Presente === 'true');
+            } else {
+              const parts = String(v).trim().split(' ');
+              id = `voter-${index + 1}`;
+              name = parts[0] || '';
+              lastName = parts.slice(1).join(' ') || '';
             }
-            // Fallback por si la hoja aún tiene formato antiguo
-            const parts = String(v).trim().split(' ');
+
+            // Usar la asistencia del sheet si existe, si no usar el localAttendance, y si ninguno, por defecto true
+            const nameKey = `${name} ${lastName}`.trim().toLowerCase();
+            let isPresent = true;
+            if (isPresentFromSheet !== undefined) {
+              isPresent = isPresentFromSheet;
+            } else if (localAttendance[nameKey] !== undefined) {
+              isPresent = localAttendance[nameKey];
+            }
+
             return {
-              id: `voter-${index + 1}`,
-              name: parts[0] || '',
-              lastName: parts.slice(1).join(' ') || '',
-              hasVoted: false,
-              votedAt: ''
+              id,
+              name,
+              lastName,
+              hasVoted,
+              votedAt,
+              isPresent
             };
           });
 
@@ -298,6 +327,14 @@ function App() {
         let localVoters = localStorage.getItem('icc_local_voters');
         let localVotes = localStorage.getItem('icc_local_votes');
 
+        let localAttendance = {};
+        try {
+          const stored = localStorage.getItem('icc_voter_attendance');
+          if (stored) localAttendance = JSON.parse(stored);
+        } catch (e) {
+          console.error(e);
+        }
+
         let parsedVoters = localVoters ? JSON.parse(localVoters) : MOCK_VOTERS;
         if (parsedVoters.length > 0 && typeof parsedVoters[0] === 'string') {
           parsedVoters = parsedVoters.map((v, index) => {
@@ -310,6 +347,21 @@ function App() {
           });
           localStorage.setItem('icc_local_voters', JSON.stringify(parsedVoters));
         }
+
+        // Mapear isPresent
+        parsedVoters = parsedVoters.map(v => {
+          let isPresent = true;
+          const nameKey = `${v.name || ''} ${v.lastName || ''}`.trim().toLowerCase();
+          if (v.isPresent !== undefined) {
+            isPresent = v.isPresent;
+          } else if (localAttendance[nameKey] !== undefined) {
+            isPresent = localAttendance[nameKey];
+          }
+          return {
+            ...v,
+            isPresent
+          };
+        });
 
         setVoters(parsedVoters);
         setVotes(localVotes ? JSON.parse(localVotes) : MOCK_VOTES);
