@@ -737,7 +737,7 @@ textarea.form-control {
 .voter-card {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
-  overflow: hidden;
+  overflow: visible;
   transition: all var(--transition-normal);
 }
 
@@ -748,12 +748,12 @@ textarea.form-control {
 
 .voters-suggestions-list {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
   background-color: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-radius: var(--radius-md);
   max-height: 200px;
   overflow-y: auto;
   z-index: 10;
