@@ -134,6 +134,80 @@ function doGet(e) {
   
   if (action === "getData") {
     var updatedMembersSheet = sheet.getSheetByName("Miembros") || sheet.getSheetByName("Votantes");
+    var rawVoters = getSheetData(updatedMembersSheet);
+    
+    var cleanVoters = [];
+    var duplicatesFound = false;
+    
+    rawVoters.forEach(function(v) {
+      var id = String(v.id || v.ID || v.Id || "").trim();
+      var idLower = id.toLowerCase();
+      var name = String(v.name || v.Nombre || v.nombre || "").trim();
+      var lastName = String(v.lastName || v.Apellido || v.apellido || "").trim();
+      var nameKey = (name + " " + lastName).toLowerCase().replace(/\s+/g, " ");
+      
+      var isTempId = idLower.indexOf("voter-") === 0;
+      
+      var existingIndex = -1;
+      for (var i = 0; i < cleanVoters.length; i++) {
+        var c = cleanVoters[i];
+        var cId = String(c.id || "").trim().toLowerCase();
+        var cName = String(c.name || "").trim();
+        var cLastName = String(c.lastName || "").trim();
+        var cNameKey = (cName + " " + cLastName).toLowerCase().replace(/\s+/g, " ");
+        
+        var matchId = id && cId && !isTempId && cId.indexOf("voter-") !== 0 && idLower === cId;
+        var matchName = nameKey && cNameKey && nameKey === cNameKey;
+        
+        if (matchId || matchName) {
+          existingIndex = i;
+          break;
+        }
+      }
+      
+      if (existingIndex !== -1) {
+        duplicatesFound = true;
+        var existing = cleanVoters[existingIndex];
+        
+        var vHasVoted = v.hasVoted === true || v.hasVoted === "TRUE" || v.hasVoted === "true" || v.Votó === "TRUE" || v.Votó === true;
+        var exHasVoted = existing.hasVoted === true;
+        existing.hasVoted = exHasVoted || vHasVoted;
+        
+        var vIsPresent = v.isPresent !== false && v.isPresent !== "FALSE" && v.isPresent !== "false" && v.Presente !== false && v.Presente !== "FALSE" && v.Presente !== "false";
+        var exIsPresent = existing.isPresent !== false;
+        existing.isPresent = exIsPresent || vIsPresent;
+        
+        var vDate = v.votedAt || v.FechaVoto || v["Fecha Voto"] || "";
+        if (!existing.votedAt && vDate) {
+          existing.votedAt = vDate;
+        }
+      } else {
+        cleanVoters.push({
+          id: id,
+          name: name,
+          lastName: lastName,
+          hasVoted: v.hasVoted === true || v.hasVoted === "TRUE" || v.hasVoted === "true" || v.Votó === "TRUE" || v.Votó === true,
+          votedAt: v.votedAt || v.FechaVoto || v["Fecha Voto"] || "",
+          isPresent: v.isPresent !== false && v.isPresent !== "FALSE" && v.isPresent !== "false" && v.Presente !== false && v.Presente !== "FALSE" && v.Presente !== "false"
+        });
+      }
+    });
+    
+    if (duplicatesFound) {
+      updatedMembersSheet.clear();
+      updatedMembersSheet.appendRow(["ID", "Nombre", "Apellido", "Has Voted", "Fecha Voto", "Presente"]);
+      cleanVoters.forEach(function(v) {
+        updatedMembersSheet.appendRow([
+          v.id,
+          v.name,
+          v.lastName,
+          v.hasVoted,
+          v.votedAt,
+          v.isPresent
+        ]);
+      });
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
       voters: getSheetData(updatedMembersSheet),
       candidates: getSheetData(sheet.getSheetByName("Candidatos")),
@@ -196,11 +270,28 @@ function doPost(e) {
   if (action === "updateVoters") {
     membersSheet.clear();
     membersSheet.appendRow(["ID", "Nombre", "Apellido", "Has Voted", "Fecha Voto", "Presente"]);
+    var seenIds = {};
+    var seenNames = {};
     data.voters.forEach(function(v) {
+      var id = String(v.id || v.ID || "").trim();
+      var idLower = id.toLowerCase();
+      var name = String(v.name || v.Nombre || "").trim();
+      var lastName = String(v.lastName || v.Apellido || "").trim();
+      var nameKey = (name + " " + lastName).toLowerCase().replace(/\s+/g, " ");
+
+      var isTempId = idLower.indexOf("voter-") === 0;
+
+      if ((id && !isTempId && seenIds[idLower]) || (nameKey && seenNames[nameKey])) {
+        return;
+      }
+
+      if (id && !isTempId) seenIds[idLower] = true;
+      if (nameKey) seenNames[nameKey] = true;
+
       membersSheet.appendRow([
-        v.id || v.ID || "", 
-        v.name || v.Nombre || "", 
-        v.lastName || v.Apellido || "",
+        id, 
+        name, 
+        lastName,
         v.hasVoted === true ? true : false,
         v.votedAt || "",
         v.isPresent !== false ? true : false

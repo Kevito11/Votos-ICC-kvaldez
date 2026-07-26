@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import AdminPanel from './components/AdminPanel';
 import VoterPanel from './components/VoterPanel';
 import Tooltip from './components/Tooltip';
-import { fetchVotersFromSheets, fetchCandidatesAndVotesFromSheets, addCandidateToSheets } from './utils/api';
+import { fetchVotersFromSheets, fetchCandidatesAndVotesFromSheets, addCandidateToSheets, deduplicateVoters, updateVotersInSheets } from './utils/api';
 import { MOCK_CANDIDATES, MOCK_VOTERS, MOCK_VOTES } from './utils/mockData';
 import './App.css';
 
@@ -300,12 +300,30 @@ function App() {
           });
           setCandidates(mappedCandidates);
 
-          setVoters(mappedVoters);
+          // Deduplicar la lista de votantes
+          const deduplicatedVoters = deduplicateVoters(mappedVoters);
+          setVoters(deduplicatedVoters);
           setVotes(mappedVotes);
           setIsConnected(true);
           hasLoadedFromSheetsRef.current = true;
           if (showNotification) {
             showToast("Datos sincronizados con Google Sheets", "success");
+          }
+
+          // Auto-sanar Google Sheets en segundo plano si había duplicados
+          if (deduplicatedVoters.length < mappedVoters.length && activeConfig.sheetUrlVoters) {
+            console.log(`Diferencia de votantes: ${mappedVoters.length} crudos vs ${deduplicatedVoters.length} deduplicados. Corrigiendo Google Sheets...`);
+            updateVotersInSheets(activeConfig.sheetUrlVoters, deduplicatedVoters)
+              .then(() => {
+                console.log("Base de datos de votantes en Google Sheets auto-corregida con éxito.");
+                const isAdmin = window.location.pathname.includes('/admin') || sessionStorage.getItem('icc_admin_authenticated') === 'true';
+                if (isAdmin) {
+                  showToast("Se detectaron y corrigieron votantes duplicados en la base de datos.", "info");
+                }
+              })
+              .catch((err) => {
+                console.error("Error al auto-corregir votantes duplicados en Google Sheets:", err);
+              });
           }
         } catch (error) {
           console.error(error);
@@ -349,7 +367,7 @@ function App() {
         }
 
         // Mapear isPresent
-        parsedVoters = parsedVoters.map(v => {
+        let mappedLocalVoters = parsedVoters.map(v => {
           let isPresent = true;
           const nameKey = `${v.name || ''} ${v.lastName || ''}`.trim().toLowerCase();
           if (v.isPresent !== undefined) {
@@ -363,7 +381,13 @@ function App() {
           };
         });
 
-        setVoters(parsedVoters);
+        // Deduplicar localmente
+        const deduplicatedLocalVoters = deduplicateVoters(mappedLocalVoters);
+        if (deduplicatedLocalVoters.length < mappedLocalVoters.length) {
+          localStorage.setItem('icc_local_voters', JSON.stringify(deduplicatedLocalVoters));
+        }
+
+        setVoters(deduplicatedLocalVoters);
         setVotes(localVotes ? JSON.parse(localVotes) : MOCK_VOTES);
         
         if (!localVoters) {

@@ -198,20 +198,51 @@ export default function VoterPanel({
       }
 
       // Validar respuestas evasivas o demasiado simples ("Porque no", "No", etc.)
-      const clean = reason.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim();
+      const clean = reason.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[.,/#!$%^&*;:{}=\-_`~()?¿¡]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
       const blacklist = [
-        "no", "porque no", "por que no", "porque si", "porque sí", "por que si", "por que sí",
-        "nada", "ninguna", "ninguno", "ningun", "ningún", "no se", "no sé", "nose", "ok", "okay",
-        "asdf", "asdfg", "asdfgh", "qwerty", "no quiero", "no lo apruebo", "no apruebo", "no lo se", "no lo sé",
-        "prueba", "test", "sin justificacion", "sin justificación", "sin comentarios"
+        "no", "porque no", "por que no", "porque si", "por que si", 
+        "nada", "ninguna", "ninguno", "ningun", "no se", "nose", "ok", "okay",
+        "asdf", "asdfg", "asdfgh", "qwerty", "zxcv", "no quiero", "no lo apruebo", "no apruebo", "no lo se",
+        "prueba", "test", "sin justificacion", "sin comentarios", "no aplica", "na",
+        "no opino", "sin opinion", "no tengo opinion", "no opino nada",
+        "ninguna de las anteriores", "porque no califica", "por que no califica", "no califica", "no apto", "no apta",
+        "por razones personales", "razones personales", "motivos personales", "por motivos personales", "razon personal",
+        "no lo conozco", "no la conozco", "desconocido", "desconocida", "no se quien es", "no se quien sea",
+        "no le conozco", "no la se", "no me gusta", "no me cae bien", "no cae bien", "me cae mal", "cae mal",
+        "malo", "mala", "mal", "pesimo", "regular", "horrible", "desagradable", "ninguna razon",
+        "ningun motivo", "no tengo motivos", "no tengo motivo", "nada que decir", "sin razon",
+        "personal", "personales", "vacio", "no lo conozco bien", "no le conozco bien", "no lo se bien",
+        "tiene que disculparse primero", "tiene que disculparse", "disculparse primero", "disculparse",
+        "tiene que discupularse primero", "tiene que discupularse", "discupularse primero", "discupularse",
+        "de donde es su nacionalidad", "de donde es", "nacionalidad"
       ];
 
-      const isBlacklisted = blacklist.includes(clean);
-      const isTooShort = clean.length < 10;
-      const hasFewWords = clean.split(' ').filter(w => w.length > 1).length < 2;
+      // Temas estrictamente prohibidos en cualquier parte del texto
+      const prohibitedTopics = ["nacionalidad", "disculparse", "discupularse"];
 
-      if (isBlacklisted || isTooShort || hasFewWords) {
-        showToast("Por favor, proporciona una breve explicación válida de tu objeción (evita respuestas genéricas como 'No' o 'Porque no').", "error");
+      // Verificar si coincide con la blacklist, o empieza/termina con expresiones de la blacklist, o contiene temas prohibidos
+      const isBlacklisted = blacklist.some(b => clean === b || clean.startsWith(b + " ") || clean.endsWith(" " + b)) ||
+                            prohibitedTopics.some(topic => clean.includes(topic));
+      const isTooShort = clean.length < 15;
+      const hasFewWords = clean.split(' ').filter(w => w.length > 1).length < 3;
+      
+      // Chequear caracteres repetidos (ej: aaaaa, 11111)
+      const hasRepeatedChars = /(.)\1{2,}/.test(clean);
+      
+      // Chequear si es solo números
+      const isOnlyNumbers = /^\d+$/.test(clean);
+      
+      // Chequear secuencia de puras consonantes sin sentido (más de 4 seguidas)
+      const hasTooManyConsonants = /[^aeiouy\d\s]{5,}/.test(clean);
+
+      if (isBlacklisted || isTooShort || hasFewWords || hasRepeatedChars || isOnlyNumbers || hasTooManyConsonants) {
+        showToast("Por favor, proporciona un argumento válido y justificado de tu objeción (evita respuestas genéricas, demasiado cortas o evasivas como 'no', 'no me gusta' o 'motivos personales').", "error");
         return;
       }
     }

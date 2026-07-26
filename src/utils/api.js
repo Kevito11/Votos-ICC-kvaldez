@@ -289,3 +289,61 @@ export async function resetMultipleVotersVotesInSheets(sheetUrl, votersList) {
     voters: votersList // Lista de objetos { voterId }
   });
 }
+
+/**
+ * Deduplica una lista de votantes combinando sus estados de votación y presencia.
+ * Se considera duplicado si coincide el ID o el Nombre Completo (normalizado).
+ * @param {Array} votersList
+ * @returns {Array} Lista deduplicada
+ */
+export function deduplicateVoters(votersList) {
+  if (!votersList || !Array.isArray(votersList)) return [];
+  
+  const result = [];
+  
+  for (const v of votersList) {
+    const vId = String(v.id || '').trim().toLowerCase();
+    const vFullName = `${v.name || ''} ${v.lastName || ''}`.trim().replace(/\s+/g, ' ').toLowerCase();
+    
+    // Buscar si ya existe este votante en nuestra lista acumulada
+    const existingIndex = result.findIndex(item => {
+      const itemId = String(item.id || '').trim().toLowerCase();
+      const itemFullName = `${item.name || ''} ${item.lastName || ''}`.trim().replace(/\s+/g, ' ').toLowerCase();
+      
+      const matchId = vId && itemId && vId === itemId;
+      const matchName = vFullName && itemFullName && vFullName === itemFullName;
+      
+      return matchId || matchName;
+    });
+    
+    if (existingIndex !== -1) {
+      // Fusión de datos del duplicado
+      const existing = result[existingIndex];
+      existing.hasVoted = existing.hasVoted || v.hasVoted;
+      
+      if (!existing.votedAt && v.votedAt) {
+        existing.votedAt = v.votedAt;
+      } else if (existing.votedAt && v.votedAt) {
+        const timeExisting = new Date(existing.votedAt).getTime();
+        const timeV = new Date(v.votedAt).getTime();
+        if (!isNaN(timeV) && (isNaN(timeExisting) || timeV > timeExisting)) {
+          existing.votedAt = v.votedAt;
+        }
+      }
+      
+      existing.isPresent = existing.isPresent || v.isPresent;
+      
+      // Conservar el ID real/numérico si el existente es auto-generado temporal (voter-X)
+      const isAutoId = (id) => String(id).startsWith('voter-');
+      if (isAutoId(existing.id) && !isAutoId(v.id) && v.id) {
+        existing.id = v.id;
+      }
+    } else {
+      // Insertar copia para no mutar el array original
+      result.push({ ...v });
+    }
+  }
+  
+  return result;
+}
+
